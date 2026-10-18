@@ -31,8 +31,9 @@ export interface EventStreamControlsProps {
 
   dotDiameterPx: number
   onDotDiameterChange: (dia: number) => void
-  orbitalRadiusNorm: number
-  onOrbitalRadiusChange: (norm: number) => void
+  orbitalRadiusPx: number
+  onOrbitalRadiusChange: (radiusPx: number) => void
+  orbitalRadiusNorm?: number
   speedDegPerSec: number
   onSpeedChange: (degPerSec: number) => void
   direction: 1 | -1
@@ -68,8 +69,9 @@ export default function EventStreamControls({
   onModeChange,
   dotDiameterPx,
   onDotDiameterChange,
-  orbitalRadiusNorm,
+  orbitalRadiusPx,
   onOrbitalRadiusChange,
+  orbitalRadiusNorm: _orbitalRadiusNorm,
   speedDegPerSec,
   onSpeedChange,
   direction,
@@ -85,20 +87,21 @@ export default function EventStreamControls({
   pointSize,
   onPointSizeChange,
 }: EventStreamControlsProps) {
-  // Speed presets in revolutions per second and deg/s
+  // Speed presets in revolutions per second and deg/s (hard limit: 1080°/s = 3.00 rev/s)
   const speedPresets = [
     { label: 'Stationary', deg: 0, rps: '0.00 rev/s' },
     { label: 'Slow', deg: 90, rps: '0.25 rev/s' },
     { label: 'Normal', deg: 360, rps: '1.00 rev/s' },
     { label: 'Fast', deg: 720, rps: '2.00 rev/s' },
-    { label: 'Extreme', deg: 1440, rps: '4.00 rev/s' },
+    { label: 'Extreme', deg: 1080, rps: '3.00 rev/s' },
   ]
 
-  const currentRps = (speedDegPerSec / 360).toFixed(2)
+  const clampedSpeed = Math.min(1080, Math.max(0, speedDegPerSec))
+  const currentRps = (clampedSpeed / 360).toFixed(2)
   const halfRes = (resolution - 1) / 2
-  const orbitalRadiusPx = orbitalRadiusNorm * (halfRes * 2)
-  const dotRadiusPx = dotDiameterPx / 2
-  const maxReachPx = orbitalRadiusPx + dotRadiusPx
+  const effectiveRadiusPx = Math.min(20, Math.max(1, orbitalRadiusPx))
+  const effectiveDotRadiusPx = Math.min(5, Math.max(0.5, dotDiameterPx / 2))
+  const maxReachPx = effectiveRadiusPx + effectiveDotRadiusPx
   const isClipping = maxReachPx > halfRes
 
   return (
@@ -319,20 +322,20 @@ export default function EventStreamControls({
                   Dot Diameter
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-cyan)', fontWeight: 700 }}>
-                  {dotDiameterPx} px ({((dotDiameterPx / resolution) * 100).toFixed(0)}% W)
+                  {Math.min(10, dotDiameterPx)} px (Max: 10 px)
                 </span>
               </div>
               <input
                 type="range"
                 min={2}
-                max={16}
+                max={10}
                 step={1}
-                value={dotDiameterPx}
-                onChange={(e) => onDotDiameterChange(parseInt(e.target.value, 10))}
+                value={Math.min(10, dotDiameterPx)}
+                onChange={(e) => onDotDiameterChange(Math.min(10, parseInt(e.target.value, 10)))}
                 style={{ width: '100%' }}
               />
               <span style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '0.2rem' }}>
-                Widens the brightness footprint across sensor pixels
+                Widens the brightness footprint across sensor pixels (Limit: 10 px)
               </span>
             </div>
 
@@ -344,20 +347,20 @@ export default function EventStreamControls({
                   Orbital Radius
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#38bdf8', fontWeight: 700 }}>
-                  {orbitalRadiusPx.toFixed(1)} px ({((orbitalRadiusNorm / 0.45) * 100).toFixed(0)}%)
+                  {effectiveRadiusPx.toFixed(1)} px (Max: 20 px)
                 </span>
               </div>
               <input
                 type="range"
-                min={0.10}
-                max={0.42}
-                step={0.01}
-                value={orbitalRadiusNorm}
-                onChange={(e) => onOrbitalRadiusChange(parseFloat(e.target.value))}
+                min={2}
+                max={20}
+                step={0.5}
+                value={effectiveRadiusPx}
+                onChange={(e) => onOrbitalRadiusChange(Math.min(20, parseFloat(e.target.value)))}
                 style={{ width: '100%' }}
               />
               <span style={{ fontSize: '0.62rem', color: isClipping ? '#fca5a5' : 'var(--color-text-muted)', display: 'block', marginTop: '0.2rem' }}>
-                {isClipping ? 'Warning: Dot edge reaches outside sensor boundary' : 'Expands the spatial circle traversed by the dot'}
+                {isClipping ? 'Warning: Dot edge reaches outside sensor boundary' : 'Distance from fixed orbit centre to dot centre (Limit: 20 px)'}
               </span>
             </div>
 
@@ -368,20 +371,20 @@ export default function EventStreamControls({
                   Space-Time Window (Δt)
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#a78bfa', fontWeight: 700 }}>
-                  {windowMs} ms
+                  {Math.min(1000, windowMs)} ms (Max: 1000 ms)
                 </span>
               </div>
               <input
                 type="range"
                 min={100}
-                max={2000}
+                max={1000}
                 step={50}
-                value={windowMs}
-                onChange={(e) => onWindowMsChange(parseInt(e.target.value, 10))}
+                value={Math.min(1000, windowMs)}
+                onChange={(e) => onWindowMsChange(Math.min(1000, parseInt(e.target.value, 10)))}
                 style={{ width: '100%' }}
               />
               <span style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '0.2rem' }}>
-                Length of the 3D temporal stream Z-axis
+                Active duration of the 3D temporal stream Z-axis (Limit: 1000 ms)
               </span>
             </div>
           </div>
@@ -475,16 +478,16 @@ export default function EventStreamControls({
                   Continuous Angular Velocity
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-cyan)' }}>
-                  {speedDegPerSec}°/s ({currentRps} rev/s)
+                  {clampedSpeed}°/s ({currentRps} rev/s · Max: 1080°/s)
                 </span>
               </div>
               <input
                 type="range"
                 min={0}
-                max={1440}
+                max={1080}
                 step={15}
-                value={speedDegPerSec}
-                onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
+                value={clampedSpeed}
+                onChange={(e) => onSpeedChange(Math.min(1080, parseFloat(e.target.value)))}
                 style={{ width: '100%' }}
               />
             </div>
@@ -519,16 +522,16 @@ export default function EventStreamControls({
                   Dot Diameter (Footprint)
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-cyan)' }}>
-                  {dotDiameterPx} px
+                  {Math.min(10, dotDiameterPx)} px (Max: 10 px)
                 </span>
               </div>
               <input
                 type="range"
                 min={2}
-                max={16}
+                max={10}
                 step={1}
-                value={dotDiameterPx}
-                onChange={(e) => onDotDiameterChange(parseInt(e.target.value, 10))}
+                value={Math.min(10, dotDiameterPx)}
+                onChange={(e) => onDotDiameterChange(Math.min(10, parseInt(e.target.value, 10)))}
                 style={{ width: '100%' }}
               />
             </div>
@@ -539,16 +542,16 @@ export default function EventStreamControls({
                   Orbital Radius (Radius from Centre)
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
-                  {orbitalRadiusPx.toFixed(1)} px
+                  {effectiveRadiusPx.toFixed(1)} px (Max: 20 px)
                 </span>
               </div>
               <input
                 type="range"
-                min={0.10}
-                max={0.42}
-                step={0.01}
-                value={orbitalRadiusNorm}
-                onChange={(e) => onOrbitalRadiusChange(parseFloat(e.target.value))}
+                min={2}
+                max={20}
+                step={0.5}
+                value={effectiveRadiusPx}
+                onChange={(e) => onOrbitalRadiusChange(Math.min(20, parseFloat(e.target.value)))}
                 style={{ width: '100%' }}
               />
             </div>
@@ -562,16 +565,16 @@ export default function EventStreamControls({
                   Space-Time Window Duration (Δt)
                 </span>
                 <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>
-                  {windowMs} ms
+                  {Math.min(1000, windowMs)} ms (Max: 1000 ms)
                 </span>
               </div>
               <input
                 type="range"
                 min={100}
-                max={2000}
+                max={1000}
                 step={50}
-                value={windowMs}
-                onChange={(e) => onWindowMsChange(parseInt(e.target.value, 10))}
+                value={Math.min(1000, windowMs)}
+                onChange={(e) => onWindowMsChange(Math.min(1000, parseInt(e.target.value, 10)))}
                 style={{ width: '100%' }}
               />
             </div>

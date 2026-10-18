@@ -79,7 +79,7 @@ function EventPointCloud({
     const curSimMs = state
       ? (state.scrubTimeMs !== null ? state.scrubTimeMs : state.simTimeMs)
       : simTimeMs
-    const curWindowMs = state ? state.windowMs : windowMs
+    const curWindowMs = Math.min(1000, state ? state.windowMs : windowMs)
     const curWidth = state ? state.resolution : width
     const curHeight = state ? state.resolution : height
     const isPlaying = state ? state.isPlaying : true
@@ -200,9 +200,10 @@ function EventPointCloud({
   const selected3dPos = useMemo<THREE.Vector3 | null>(() => {
     if (!selectedEvent) return null
 
-    const isRampingUp = simTimeMs <= windowMs
-    const tEndMs = isRampingUp ? windowMs : simTimeMs
-    const tStartMs = isRampingUp ? 0 : simTimeMs - windowMs
+    const effectiveWindowMs = Math.min(1000, windowMs)
+    const isRampingUp = simTimeMs <= effectiveWindowMs
+    const tEndMs = isRampingUp ? effectiveWindowMs : simTimeMs
+    const tStartMs = isRampingUp ? 0 : simTimeMs - effectiveWindowMs
     const tEndUs = tEndMs * 1000
     const tStartUs = tStartMs * 1000
     const windowSpanUs = Math.max(1, tEndUs - tStartUs)
@@ -383,9 +384,10 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
     setCameraKey(prev => prev + 1)
   }
 
-  const isRampingUp = props.simTimeMs <= props.windowMs
-  const tEndMs = isRampingUp ? Math.round(props.windowMs) : Math.round(props.simTimeMs)
-  const tStartMs = isRampingUp ? 0 : Math.round(props.simTimeMs - props.windowMs)
+  const effectiveWindowMs = Math.min(1000, props.windowMs)
+  const isRampingUp = props.simTimeMs <= effectiveWindowMs
+  const tEndMs = isRampingUp ? Math.round(effectiveWindowMs) : Math.round(props.simTimeMs)
+  const tStartMs = isRampingUp ? 0 : Math.round(props.simTimeMs - effectiveWindowMs)
 
   return (
     <div
@@ -639,7 +641,7 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.2rem', fontSize: '0.62rem' }}>
             {props.events.length > 0 ? (
               <span style={{ color: 'var(--color-cyan)' }}>
-                {props.events.length.toLocaleString()} events in active window (Δt = {props.windowMs} ms)
+                {props.events.length.toLocaleString()} events in active window (Δt = {effectiveWindowMs} ms)
               </span>
             ) : (
               <span style={{ color: '#f59e0b' }}>
@@ -671,7 +673,7 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 700 }}>
             <Clock size={12} />
-            <span>TIME AXIS (Z): [{tStartMs} ms ... {tEndMs} ms] (Δt = {props.windowMs} ms)</span>
+            <span>TIME AXIS (Z): [{tStartMs} ms ... {tEndMs} ms] (Δt = {effectiveWindowMs} ms)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.64rem' }}>
             <span><strong style={{ color: '#06b6d4' }}>Front Plane (Z=+):</strong> Head (t = {tEndMs} ms)</span>

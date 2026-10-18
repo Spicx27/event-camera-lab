@@ -15,7 +15,7 @@ export default function EventStreamLab() {
 
   // ── Physical Orbiting Dot Parameters ──────────────────────────────────────
   const [dotDiameterPx, setDotDiameterPx] = useState<number>(7)
-  const [orbitalRadiusNorm, setOrbitalRadiusNorm] = useState<number>(0.32)
+  const [orbitalRadiusPx, setOrbitalRadiusPx] = useState<number>(20)
   const [speedDegPerSec, setSpeedDegPerSec] = useState<number>(360) // 1.00 rev/s default for canonical Slide 10 helix
   const [direction, setDirection] = useState<1 | -1>(1)
   const [illuminationLux, setIlluminationLux] = useState<number>(500)
@@ -23,7 +23,7 @@ export default function EventStreamLab() {
   // ── Event Sensor Parameters ───────────────────────────────────────────────
   const [resolution, setResolution] = useState<64 | 128>(64)
   const [thresholdC, setThresholdC] = useState<number>(0.20) // Contrast threshold (Slide 9)
-  const [windowMs, setWindowMs] = useState<number>(1000) // Default 1000 ms (1 full revolution at 1 rev/s)
+  const [windowMs, setWindowMs] = useState<number>(1000) // Default 1000 ms (Hard limit: 1000 ms)
   const [pointSize, setPointSize] = useState<number>(3.5)
   const [maxHistoryLimit, setMaxHistoryLimit] = useState<number>(35000)
   const [renderedCount, setRenderedCount] = useState<number>(0)
@@ -117,14 +117,14 @@ export default function EventStreamLab() {
       angleDeg: st.angleDeg,
       dotPixelX: st.dotPixelX,
       dotPixelY: st.dotPixelY,
-      orbitalRadiusPx: st.orbitalRadiusPx,
-      dotRadiusPx: st.dotRadiusPx,
-      dotDiameterPx,
+      orbitalRadiusPx: Math.min(20, st.orbitalRadiusPx),
+      dotRadiusPx: Math.min(5, st.dotRadiusPx),
+      dotDiameterPx: Math.min(10, dotDiameterPx),
       speedRps: st.speedRps,
-      speedDegPerSec,
+      speedDegPerSec: Math.min(1080, speedDegPerSec),
       direction,
       resolution,
-      windowMs,
+      windowMs: Math.min(1000, windowMs),
       isPlaying,
       scrubTimeMs,
     }
@@ -150,10 +150,11 @@ export default function EventStreamLab() {
       setRetainedDurationMs(0)
     }
 
+    const clampedWindowMs = Math.min(1000, windowMs)
     const effectiveTimeMs = currentSimMs
-    const isRampingUp = effectiveTimeMs <= windowMs
-    const activeStartUs = isRampingUp ? 0 : (effectiveTimeMs - windowMs) * 1000
-    const activeEndUs = isRampingUp ? windowMs * 1000 : effectiveTimeMs * 1000
+    const isRampingUp = effectiveTimeMs <= clampedWindowMs
+    const activeStartUs = isRampingUp ? 0 : (effectiveTimeMs - clampedWindowMs) * 1000
+    const activeEndUs = isRampingUp ? clampedWindowMs * 1000 : effectiveTimeMs * 1000
 
     const inWindow = eventEngineRef.current.getStreamEventsInWindow(
       activeStartUs,
@@ -197,14 +198,14 @@ export default function EventStreamLab() {
     canonicalStateRef.current.angleDeg = st.angleDeg
     canonicalStateRef.current.dotPixelX = st.dotPixelX
     canonicalStateRef.current.dotPixelY = st.dotPixelY
-    canonicalStateRef.current.orbitalRadiusPx = st.orbitalRadiusPx
-    canonicalStateRef.current.dotRadiusPx = st.dotRadiusPx
-    canonicalStateRef.current.dotDiameterPx = dotDiameterPx
+    canonicalStateRef.current.orbitalRadiusPx = Math.min(20, st.orbitalRadiusPx)
+    canonicalStateRef.current.dotRadiusPx = Math.min(5, st.dotRadiusPx)
+    canonicalStateRef.current.dotDiameterPx = Math.min(10, dotDiameterPx)
     canonicalStateRef.current.speedRps = st.speedRps
-    canonicalStateRef.current.speedDegPerSec = speedDegPerSec
+    canonicalStateRef.current.speedDegPerSec = Math.min(1080, speedDegPerSec)
     canonicalStateRef.current.direction = direction
     canonicalStateRef.current.resolution = resolution
-    canonicalStateRef.current.windowMs = windowMs
+    canonicalStateRef.current.windowMs = Math.min(1000, windowMs)
     canonicalStateRef.current.isPlaying = true
     canonicalStateRef.current.scrubTimeMs = scrubTimeMs
   }, [resolution, dotDiameterPx, speedDegPerSec, direction, windowMs, scrubTimeMs])
@@ -234,8 +235,9 @@ export default function EventStreamLab() {
 
   // Smooth parameter changes without teleportation
   const handleDotDiameterChange = useCallback((dia: number) => {
-    setDotDiameterPx(dia)
-    dotModelRef.current.params.dotDiameterPx = dia
+    const clamped = Math.min(10, Math.max(1, dia))
+    setDotDiameterPx(clamped)
+    dotModelRef.current.params.dotDiameterPx = clamped
     dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
@@ -245,9 +247,12 @@ export default function EventStreamLab() {
     flushUi()
   }, [resolution, syncCanonicalState, flushUi])
 
-  const handleOrbitalRadiusChange = useCallback((norm: number) => {
-    setOrbitalRadiusNorm(norm)
-    dotModelRef.current.params.orbitalRadiusNorm = norm
+  const handleOrbitalRadiusChange = useCallback((radius: number) => {
+    const rawPx = radius <= 1.0 ? radius * 63 : radius
+    const clampedPx = Math.min(20, Math.max(1, Math.round(rawPx * 10) / 10))
+    setOrbitalRadiusPx(clampedPx)
+    dotModelRef.current.params.orbitalRadiusPx = clampedPx
+    dotModelRef.current.params.orbitalRadiusNorm = clampedPx / 63
     dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
@@ -258,10 +263,11 @@ export default function EventStreamLab() {
   }, [resolution, syncCanonicalState, flushUi])
 
   const handleSpeedChange = useCallback((spd: number) => {
-    setSpeedDegPerSec(spd)
-    dotModelRef.current.setAngularVelocity(spd, direction, simClockRef.current / 1000)
-    canonicalStateRef.current.speedDegPerSec = spd
-    canonicalStateRef.current.speedRps = Number((spd / 360).toFixed(2))
+    const clamped = Math.min(1080, Math.max(0, spd))
+    setSpeedDegPerSec(clamped)
+    dotModelRef.current.setAngularVelocity(clamped, direction, simClockRef.current / 1000)
+    canonicalStateRef.current.speedDegPerSec = clamped
+    canonicalStateRef.current.speedRps = Number((clamped / 360).toFixed(2))
     syncCanonicalState()
     flushUi()
   }, [direction, syncCanonicalState, flushUi])
@@ -278,8 +284,9 @@ export default function EventStreamLab() {
   }, [speedDegPerSec, syncCanonicalState, flushUi])
 
   const handleWindowMsChange = useCallback((win: number) => {
-    setWindowMs(win)
-    canonicalStateRef.current.windowMs = win
+    const clamped = Math.min(1000, Math.max(50, win))
+    setWindowMs(clamped)
+    canonicalStateRef.current.windowMs = clamped
     syncCanonicalState()
     flushUi()
   }, [syncCanonicalState, flushUi])
@@ -408,14 +415,15 @@ export default function EventStreamLab() {
     dotModelRef.current.reset()
     dotModelRef.current.params = {
       dotDiameterPx: 7,
-      orbitalRadiusNorm: 0.32,
+      orbitalRadiusPx: 20,
+      orbitalRadiusNorm: 20 / 63,
       speedDegPerSec: 360,
       direction: 1,
       illuminationLux: 500,
     }
 
     setDotDiameterPx(7)
-    setOrbitalRadiusNorm(0.32)
+    setOrbitalRadiusPx(20)
     setSpeedDegPerSec(360)
     setDirection(1)
     setThresholdC(0.20)
@@ -440,15 +448,22 @@ export default function EventStreamLab() {
     window: number
     threshold: number
   }) => {
-    setDotDiameterPx(preset.dotDiameter)
-    setOrbitalRadiusNorm(preset.orbitalRadius)
-    setSpeedDegPerSec(preset.speed)
-    setWindowMs(preset.window)
+    const clampedDiameter = Math.min(10, Math.max(1, preset.dotDiameter))
+    const rawRadius = preset.orbitalRadius <= 1 ? preset.orbitalRadius * 63 : preset.orbitalRadius
+    const clampedRadius = Math.min(20, Math.max(1, Math.round(rawRadius * 10) / 10))
+    const clampedSpeed = Math.min(1080, Math.max(0, preset.speed))
+    const clampedWindow = Math.min(1000, Math.max(50, preset.window))
+
+    setDotDiameterPx(clampedDiameter)
+    setOrbitalRadiusPx(clampedRadius)
+    setSpeedDegPerSec(clampedSpeed)
+    setWindowMs(clampedWindow)
     setThresholdC(preset.threshold)
 
-    dotModelRef.current.params.dotDiameterPx = preset.dotDiameter
-    dotModelRef.current.params.orbitalRadiusNorm = preset.orbitalRadius
-    dotModelRef.current.setAngularVelocity(preset.speed, direction, simClockRef.current / 1000)
+    dotModelRef.current.params.dotDiameterPx = clampedDiameter
+    dotModelRef.current.params.orbitalRadiusPx = clampedRadius
+    dotModelRef.current.params.orbitalRadiusNorm = clampedRadius / 63
+    dotModelRef.current.setAngularVelocity(clampedSpeed, direction, simClockRef.current / 1000)
     eventEngineRef.current.setThreshold(preset.threshold)
 
     dotModelRef.current.invalidateDirtyBBox()
@@ -457,7 +472,7 @@ export default function EventStreamLab() {
 
     setScrubTimeMs(null)
     setIsLiveFollow(true)
-    if (!isPlaying && preset.speed > 0) {
+    if (!isPlaying && clampedSpeed > 0) {
       setIsPlaying(true)
       canonicalStateRef.current.isPlaying = true
     }
@@ -640,7 +655,7 @@ export default function EventStreamLab() {
         onModeChange={setMode}
         dotDiameterPx={dotDiameterPx}
         onDotDiameterChange={handleDotDiameterChange}
-        orbitalRadiusNorm={orbitalRadiusNorm}
+        orbitalRadiusPx={orbitalRadiusPx}
         onOrbitalRadiusChange={handleOrbitalRadiusChange}
         speedDegPerSec={speedDegPerSec}
         onSpeedChange={handleSpeedChange}

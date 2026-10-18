@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FlaskConical } from 'lucide-react'
 import { SceneModel, type MotionPattern, type OpticalPattern } from '@/sim/sceneModel'
-import { EventEngine, type DvsEvent, type EventEngineStats, type EventLayerCounts, type PixelSample } from '@/sim/eventEngine'
+import { EventEngine, type DvsEvent, type EventEngineStats, type EventLayerCounts } from '@/sim/eventEngine'
 import { FrameEngine, type CapturedFrameRecord, type FrameEngineStats } from '@/sim/frameEngine'
 import Scene3D from './Scene3D'
 import DualSensorView from './DualSensorView'
-import PixelInspector from './PixelInspector'
 import SimulationControls, { type SimulationMode } from './SimulationControls'
 import SimulationMetrics from './SimulationMetrics'
 import DynamicObservations from './DynamicObservations'
@@ -59,7 +58,6 @@ export default function BiologicalVsEventSim() {
   const [eventCountInWindow, setEventCountInWindow] = useState<number>(0)
   const [accumulatedEvents, setAccumulatedEvents] = useState<DvsEvent[]>([])
   const [recentEventsList, setRecentEventsList] = useState<DvsEvent[]>([])
-  const [pixelHistory, setPixelHistory] = useState<PixelSample[]>([])
   const [sceneAngle, setSceneAngle] = useState<number>(0)
   const [scenePos, setScenePos] = useState<number>(0)
   const [sphereNorm, setSphereNorm] = useState<{ x: number; y: number }>({ x: 0.68, y: 0 })
@@ -204,7 +202,6 @@ export default function BiologicalVsEventSim() {
       setRecentEventsList(eventEngineRef.current.getRecentEvents(12))
       setDisplayFrame(new Float32Array(frameEngineRef.current.currentDisplayFrame))
       setRecentCapturedFrames([...frameEngineRef.current.getRecentFrames()])
-      setPixelHistory([...eventEngineRef.current.getPixelHistory()])
       setSceneAngle(sceneRef.current.getAngle())
       setScenePos(sceneRef.current.getPosition())
 
@@ -243,7 +240,6 @@ export default function BiologicalVsEventSim() {
     setEventCountInWindow(0)
     setAccumulatedEvents([])
     setRecentEventsList([])
-    setPixelHistory([])
     setSceneAngle(0)
     setScenePos(0)
     const sphereState = sceneRef.current.getSphereState()
@@ -297,7 +293,6 @@ export default function BiologicalVsEventSim() {
     setEventCountInWindow(0)
     setAccumulatedEvents([])
     setRecentEventsList([])
-    setPixelHistory([])
     setSceneAngle(0)
     setScenePos(0)
     const sphereState = sceneRef.current.getSphereState()
@@ -401,7 +396,6 @@ export default function BiologicalVsEventSim() {
         setRecentEventsList(eventEngineRef.current.getRecentEvents(12))
         setDisplayFrame(new Float32Array(frameEngineRef.current.currentDisplayFrame))
         setRecentCapturedFrames([...frameEngineRef.current.getRecentFrames()])
-        setPixelHistory([...eventEngineRef.current.getPixelHistory()])
         setSceneAngle(sceneRef.current.getAngle())
         setScenePos(sceneRef.current.getPosition())
 
@@ -568,31 +562,20 @@ export default function BiologicalVsEventSim() {
         eventRate={eventStats.eventRatePerSec}
       />
 
-      {/* ── Advanced Mode Diagnostics: Metrics & Single-Pixel Inspector ── */}
+      {/* ── Advanced Mode Diagnostics: Quantitative Metrics ── */}
       {mode === 'advanced' && (
-        <>
-          <div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', marginBottom: '0.4rem' }}>
-              Live Quantitative Engineering Metrics
-            </div>
-            <SimulationMetrics
-              eventStats={eventStats}
-              frameStats={frameStats}
-              resolution={resolution}
-              illuminationLux={illuminationLux}
-              thresholdC={thresholdC}
-            />
+        <div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', marginBottom: '0.4rem' }}>
+            Live Quantitative Engineering Metrics
           </div>
-
-          <PixelInspector
-            selectedPixel={selectedPixel}
-            width={resolution}
-            height={resolution}
-            onSelectPixel={(x, y) => setSelectedPixel({ x, y })}
-            history={pixelHistory}
+          <SimulationMetrics
+            eventStats={eventStats}
+            frameStats={frameStats}
+            resolution={resolution}
+            illuminationLux={illuminationLux}
             thresholdC={thresholdC}
           />
-        </>
+        </div>
       )}
 
       {/* ── Structured Comparison & Model Limitations Panel ── */}

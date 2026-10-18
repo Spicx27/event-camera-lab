@@ -326,7 +326,7 @@ export default function EventStreamObservations({
             onClick={() =>
               onApplyPreset({
                 dotDiameter: 7,
-                orbitalRadius: 0.32,
+                orbitalRadius: 20,
                 speed: 360,
                 window: 1000,
                 threshold: 0.20,
@@ -356,7 +356,7 @@ export default function EventStreamObservations({
             onClick={() =>
               onApplyPreset({
                 dotDiameter: 5,
-                orbitalRadius: 0.34,
+                orbitalRadius: 20,
                 speed: 720,
                 window: 1000,
                 threshold: 0.22,
@@ -386,7 +386,7 @@ export default function EventStreamObservations({
             onClick={() =>
               onApplyPreset({
                 dotDiameter: 7,
-                orbitalRadius: 0.32,
+                orbitalRadius: 20,
                 speed: 0,
                 window: 1000,
                 threshold: 0.20,
@@ -415,8 +415,8 @@ export default function EventStreamObservations({
           <button
             onClick={() =>
               onApplyPreset({
-                dotDiameter: 12,
-                orbitalRadius: 0.28,
+                dotDiameter: 10,
+                orbitalRadius: 18,
                 speed: 360,
                 window: 1000,
                 threshold: 0.12,
@@ -437,7 +437,7 @@ export default function EventStreamObservations({
               4. Wide Footprint & Sensitivity
             </span>
             <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-              12 px diameter dot with sensitive C = 0.12 forming a dense ribbon
+              10 px diameter dot (maximum supported footprint) with sensitive C = 0.12 forming a dense ribbon
             </span>
           </button>
         </div>

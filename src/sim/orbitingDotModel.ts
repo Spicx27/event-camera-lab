@@ -12,10 +12,16 @@
  * where omega = speedRps * 2pi rad/s = speedDegPerSec * (pi / 180) rad/s
  */
 
+export const MAX_DOT_DIAMETER_PX = 10
+export const MAX_ORBITAL_RADIUS_PX = 20
+export const MAX_SPEED_DEG_PER_SEC = 1080
+export const MAX_WINDOW_MS = 1000
+
 export interface OrbitingDotParams {
-  dotDiameterPx: number        // Dot diameter in sensor pixels (e.g. 2 to 16 px)
-  orbitalRadiusNorm: number    // Orbital radius normalized to sensor half-width [0.05 to 0.45]
-  speedDegPerSec: number       // Angular velocity in deg/s (0°/s to 1440°/s)
+  dotDiameterPx: number        // Dot diameter in sensor pixels (2 to 10 px)
+  orbitalRadiusPx?: number     // Orbital radius in sensor pixels (1 to 20 px)
+  orbitalRadiusNorm?: number   // Legacy normalized radius [deprecated, converted to orbitalRadiusPx]
+  speedDegPerSec: number       // Angular velocity in deg/s (0°/s to 1080°/s)
   direction: 1 | -1            // 1 = Clockwise, -1 = Counter-Clockwise
   illuminationLux: number      // Ambient photonics irradiance (10 to 5000 lux)
 }
@@ -70,14 +76,27 @@ export class OrbitingDotModel {
   private hasPrevBBox: boolean = false
 
   constructor(params?: Partial<OrbitingDotParams>) {
+    const rawDia = params?.dotDiameterPx ?? 7
+    const rawRad = params?.orbitalRadiusPx ?? (params?.orbitalRadiusNorm !== undefined ? params.orbitalRadiusNorm * 63 : 20)
+    const rawSpeed = params?.speedDegPerSec ?? 360
+
+    const clampedDia = Math.min(MAX_DOT_DIAMETER_PX, Math.max(1, rawDia))
+    const clampedRad = Math.min(MAX_ORBITAL_RADIUS_PX, Math.max(1, rawRad))
+    const clampedSpeed = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, rawSpeed))
+
     this.params = {
-      dotDiameterPx: 7,          // Default 7px diameter on a 64x64 sensor (~11% sensor width)
-      orbitalRadiusNorm: 0.32,   // Default 32% of sensor dimension (radius ~20px on 64x64)
-      speedDegPerSec: 360,       // 1.00 rev/s default for canonical Slide 10 helix
-      direction: 1,              // Clockwise
-      illuminationLux: 500,
+      dotDiameterPx: clampedDia,
+      orbitalRadiusPx: clampedRad,
+      orbitalRadiusNorm: clampedRad / 63,
+      speedDegPerSec: clampedSpeed,
+      direction: params?.direction ?? 1,
+      illuminationLux: params?.illuminationLux ?? 500,
       ...params,
     }
+    // Re-enforce strict limits after spread
+    this.params.dotDiameterPx = Math.min(MAX_DOT_DIAMETER_PX, Math.max(1, this.params.dotDiameterPx))
+    this.params.orbitalRadiusPx = Math.min(MAX_ORBITAL_RADIUS_PX, Math.max(1, this.params.orbitalRadiusPx ?? clampedRad))
+    this.params.speedDegPerSec = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, this.params.speedDegPerSec))
   }
 
   /**
@@ -96,18 +115,20 @@ export class OrbitingDotModel {
    * Updates angular velocity (speed or direction) while guaranteeing phase continuity:
    * captures the exact angle at atTimeSec as the new \theta_0, and atTimeSec as t_0.
    * This ensures the dot never jumps position when speed or direction is adjusted.
+   * Clamped strictly to MAX_SPEED_DEG_PER_SEC (1080 deg/s = 3.00 rev/s).
    */
   public setAngularVelocity(
     speedDegPerSec: number,
     direction: 1 | -1,
     atTimeSec: number = this.currentSimTimeSec
   ): void {
+    const clampedSpeed = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, speedDegPerSec))
     // 1. Lock in the exact current angle at the transition moment
     this.baseAngleRad = this.getAngleAtTime(atTimeSec)
     // 2. Set the reference time to the transition moment
     this.baseTimeSec = atTimeSec
     // 3. Update parameters
-    this.params.speedDegPerSec = speedDegPerSec
+    this.params.speedDegPerSec = clampedSpeed
     this.params.direction = direction
     this.currentSimTimeSec = atTimeSec
   }
@@ -118,7 +139,8 @@ export class OrbitingDotModel {
    * where \omega = direction * speedRadPerSec
    */
   public getAngleAtTime(simTimeSec: number): number {
-    const { speedDegPerSec, direction } = this.params
+    const speedDegPerSec = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, this.params.speedDegPerSec))
+    const { direction } = this.params
     if (speedDegPerSec === 0) {
       return this.baseAngleRad
     }
@@ -183,13 +205,27 @@ export class OrbitingDotModel {
     const cy = (height - 1) / 2
     const maxRadius = Math.min(cx, cy)
 
-    const orbitalRadiusPx = this.params.orbitalRadiusNorm * (maxRadius * 2)
-    const dotRadiusPx = Math.max(1, this.params.dotDiameterPx / 2)
+    // Orbital radius clamped strictly to MAX_ORBITAL_RADIUS_PX (20 px)
+    let orbitalRadiusPx = this.params.orbitalRadiusPx
+    if (orbitalRadiusPx === undefined) {
+      if (this.params.orbitalRadiusNorm !== undefined) {
+        orbitalRadiusPx = this.params.orbitalRadiusNorm <= 1
+          ? this.params.orbitalRadiusNorm * (maxRadius * 2)
+          : this.params.orbitalRadiusNorm
+      } else {
+        orbitalRadiusPx = 20
+      }
+    }
+    orbitalRadiusPx = Math.min(MAX_ORBITAL_RADIUS_PX, Math.max(1, orbitalRadiusPx))
+
+    const dotDiameterPx = Math.min(MAX_DOT_DIAMETER_PX, Math.max(1, this.params.dotDiameterPx))
+    const dotRadiusPx = Math.max(0.5, dotDiameterPx / 2)
 
     const dotPixelX = cx + Math.cos(angleRad) * orbitalRadiusPx
     const dotPixelY = cy + Math.sin(angleRad) * orbitalRadiusPx
 
     const angleDeg = (angleRad * 180) / Math.PI
+    const speedDeg = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, this.params.speedDegPerSec))
 
     return {
       angleRad,
@@ -199,7 +235,7 @@ export class OrbitingDotModel {
       orbitalRadiusPx,
       dotRadiusPx,
       simTimeSec,
-      speedRps: Number((this.params.speedDegPerSec / 360).toFixed(2)),
+      speedRps: Number((speedDeg / 360).toFixed(2)),
     }
   }
 
@@ -210,6 +246,9 @@ export class OrbitingDotModel {
     this.baseAngleRad = 0
     this.baseTimeSec = 0
     this.currentSimTimeSec = 0
+    this.params.dotDiameterPx = Math.min(MAX_DOT_DIAMETER_PX, Math.max(1, this.params.dotDiameterPx))
+    this.params.orbitalRadiusPx = Math.min(MAX_ORBITAL_RADIUS_PX, Math.max(1, this.params.orbitalRadiusPx ?? 20))
+    this.params.speedDegPerSec = Math.min(MAX_SPEED_DEG_PER_SEC, Math.max(0, this.params.speedDegPerSec))
     this.invalidateDirtyBBox()
   }
 
@@ -244,8 +283,21 @@ export class OrbitingDotModel {
     const cy = (height - 1) / 2
     const maxRadius = Math.min(cx, cy)
 
-    const orbitalRadiusPx = this.params.orbitalRadiusNorm * (maxRadius * 2)
-    const dotRadiusPx = Math.max(1, this.params.dotDiameterPx / 2)
+    // Orbital radius clamped strictly to MAX_ORBITAL_RADIUS_PX (20 px)
+    let orbitalRadiusPx = this.params.orbitalRadiusPx
+    if (orbitalRadiusPx === undefined) {
+      if (this.params.orbitalRadiusNorm !== undefined) {
+        orbitalRadiusPx = this.params.orbitalRadiusNorm <= 1
+          ? this.params.orbitalRadiusNorm * (maxRadius * 2)
+          : this.params.orbitalRadiusNorm
+      } else {
+        orbitalRadiusPx = 20
+      }
+    }
+    orbitalRadiusPx = Math.min(MAX_ORBITAL_RADIUS_PX, Math.max(1, orbitalRadiusPx))
+
+    const dotDiameterPx = Math.min(MAX_DOT_DIAMETER_PX, Math.max(1, this.params.dotDiameterPx))
+    const dotRadiusPx = Math.max(0.5, dotDiameterPx / 2)
 
     const dotX = cx + Math.cos(angleRad) * orbitalRadiusPx
     const dotY = cy + Math.sin(angleRad) * orbitalRadiusPx

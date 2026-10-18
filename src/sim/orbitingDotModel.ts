@@ -31,10 +31,43 @@ export interface OrbitingDotState {
   speedRps: number             // Revolutions per second (speedDegPerSec / 360)
 }
 
+export interface BoundingBox {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+export interface CanonicalSimulationState {
+  simTimeMs: number
+  angleRad: number
+  angleDeg: number
+  dotPixelX: number
+  dotPixelY: number
+  orbitalRadiusPx: number
+  dotRadiusPx: number
+  dotDiameterPx: number
+  speedRps: number
+  speedDegPerSec: number
+  direction: 1 | -1
+  resolution: number
+  windowMs: number
+  isPlaying: boolean
+  scrubTimeMs: number | null
+}
+
 export class OrbitingDotModel {
   public params: OrbitingDotParams
-  private currentAngleRad: number = 0
-  private currentSimTimeSec: number = 0
+  private baseAngleRad: number = 0       // \theta_0 at time t_0
+  private baseTimeSec: number = 0        // t_0 (time of last velocity change or reset)
+  private currentSimTimeSec: number = 0  // Canonical continuous simulation time t in seconds
+
+  // Bounded dirty tracking to prevent full-grid redundant calculations
+  private prevMinX: number = -1
+  private prevMaxX: number = -1
+  private prevMinY: number = -1
+  private prevMaxY: number = -1
+  private hasPrevBBox: boolean = false
 
   constructor(params?: Partial<OrbitingDotParams>) {
     this.params = {
@@ -48,28 +81,93 @@ export class OrbitingDotModel {
   }
 
   /**
-   * Advances the simulation clock and dot orbital angle by dtSeconds.
+   * Invalidates previously tracked bounding box, forcing a full clean refresh
+   * on the next sampling step (e.g. after parameter or resolution change).
+   */
+  public invalidateDirtyBBox(): void {
+    this.hasPrevBBox = false
+    this.prevMinX = -1
+    this.prevMaxX = -1
+    this.prevMinY = -1
+    this.prevMaxY = -1
+  }
+
+  /**
+   * Updates angular velocity (speed or direction) while guaranteeing phase continuity:
+   * captures the exact angle at atTimeSec as the new \theta_0, and atTimeSec as t_0.
+   * This ensures the dot never jumps position when speed or direction is adjusted.
+   */
+  public setAngularVelocity(
+    speedDegPerSec: number,
+    direction: 1 | -1,
+    atTimeSec: number = this.currentSimTimeSec
+  ): void {
+    // 1. Lock in the exact current angle at the transition moment
+    this.baseAngleRad = this.getAngleAtTime(atTimeSec)
+    // 2. Set the reference time to the transition moment
+    this.baseTimeSec = atTimeSec
+    // 3. Update parameters
+    this.params.speedDegPerSec = speedDegPerSec
+    this.params.direction = direction
+    this.currentSimTimeSec = atTimeSec
+  }
+
+  /**
+   * Deterministically computes the orbital angle \theta(t) at simulation time t (in seconds):
+   * \theta(t) = \theta_0 + \omega * (t - t_0) mod 2\pi
+   * where \omega = direction * speedRadPerSec
+   */
+  public getAngleAtTime(simTimeSec: number): number {
+    const { speedDegPerSec, direction } = this.params
+    if (speedDegPerSec === 0) {
+      return this.baseAngleRad
+    }
+    const speedRadPerSec = (speedDegPerSec * Math.PI) / 180
+    const deltaT = simTimeSec - this.baseTimeSec
+    let angle = (this.baseAngleRad + direction * speedRadPerSec * deltaT) % (Math.PI * 2)
+    if (angle < 0) {
+      angle += Math.PI * 2
+    }
+    return angle
+  }
+
+  /**
+   * Sets the authoritative simulation time (in seconds).
+   */
+  public setTime(simTimeSec: number): void {
+    this.currentSimTimeSec = Math.max(0, simTimeSec)
+  }
+
+  /**
+   * Advances the simulation clock by dtSeconds.
    */
   public update(dtSeconds: number): void {
     if (dtSeconds <= 0) return
-
     this.currentSimTimeSec += dtSeconds
-    const { speedDegPerSec, direction } = this.params
+  }
 
-    if (speedDegPerSec === 0) return
+  public get currentSimTime(): number {
+    return this.currentSimTimeSec
+  }
 
-    const speedRadPerSec = (speedDegPerSec * Math.PI) / 180
-    this.currentAngleRad = (this.currentAngleRad + direction * speedRadPerSec * dtSeconds) % (Math.PI * 2)
-    if (this.currentAngleRad < 0) {
-      this.currentAngleRad += Math.PI * 2
-    }
+  public get currentAngleRad(): number {
+    return this.getAngleAtTime(this.currentSimTimeSec)
   }
 
   /**
    * Calculates the full physical dot state at the current simulation moment.
    */
   public getState(width: number, height: number): OrbitingDotState {
-    return this.getStateAtAngle(this.currentAngleRad, this.currentSimTimeSec, width, height)
+    return this.getStateAtTime(this.currentSimTimeSec, width, height)
+  }
+
+  /**
+   * Deterministically calculates the full physical dot state directly
+   * from an explicit continuous simulation time in seconds.
+   */
+  public getStateAtTime(simTimeSec: number, width: number, height: number): OrbitingDotState {
+    const angleRad = this.getAngleAtTime(simTimeSec)
+    return this.getStateAtAngle(angleRad, simTimeSec, width, height)
   }
 
   /**
@@ -109,25 +207,28 @@ export class OrbitingDotModel {
    * Resets the simulation clock and dot angle back to zero.
    */
   public reset(): void {
-    this.currentAngleRad = 0
+    this.baseAngleRad = 0
+    this.baseTimeSec = 0
     this.currentSimTimeSec = 0
+    this.invalidateDirtyBBox()
   }
 
   /**
    * Renders the continuous light irradiance grid (sensor optical image)
    * at the current simulation state into targetBuffer.
    *
-   * Physical irradiance model:
-   * - Stationary, uniformly lit background: I_bg
-   * - High-contrast circular orbiting dot: I_dot
-   * - Smooth 1-pixel antialiased boundary edge to prevent digital aliasing
+   * Highly optimized: only recalculates pixels in the union bounding box
+   * of the dot's previous and current positions, reducing CPU operations
+   * by >95% while maintaining exact mathematical fidelity.
+   *
+   * Returns the bounding box of affected pixels.
    */
   public sampleIntensityGrid(
     width: number,
     height: number,
     targetBuffer: Float32Array
-  ): void {
-    this.sampleIntensityGridAtAngle(this.currentAngleRad, width, height, targetBuffer)
+  ): BoundingBox {
+    return this.sampleIntensityGridAtAngle(this.currentAngleRad, width, height, targetBuffer)
   }
 
   /**
@@ -138,7 +239,7 @@ export class OrbitingDotModel {
     width: number,
     height: number,
     targetBuffer: Float32Array
-  ): void {
+  ): BoundingBox {
     const cx = (width - 1) / 2
     const cy = (height - 1) / 2
     const maxRadius = Math.min(cx, cy)
@@ -156,25 +257,71 @@ export class OrbitingDotModel {
     const dotIntensity = 0.96 * luxScale     // High-contrast bright circular dot
     const deltaIntensity = dotIntensity - bgIntensity
 
-    for (let y = 0; y < height; y++) {
-      const dy = y - dotY
-      for (let x = 0; x < width; x++) {
-        const dx = x - dotX
-        const distToDot = Math.sqrt(dx * dx + dy * dy)
-        const idx = y * width + x
+    const curMinX = Math.max(0, Math.floor(dotX - dotRadiusPx - 1))
+    const curMaxX = Math.min(width - 1, Math.ceil(dotX + dotRadiusPx + 1))
+    const curMinY = Math.max(0, Math.floor(dotY - dotRadiusPx - 1))
+    const curMaxY = Math.min(height - 1, Math.ceil(dotY + dotRadiusPx + 1))
 
-        if (distToDot <= dotRadiusPx - 0.5) {
+    let dirtyBBox: BoundingBox
+
+    if (this.hasPrevBBox) {
+      // Fast clear of previous dot region back to background
+      for (let y = this.prevMinY; y <= this.prevMaxY; y++) {
+        const rowOffset = y * width
+        for (let x = this.prevMinX; x <= this.prevMaxX; x++) {
+          targetBuffer[rowOffset + x] = bgIntensity
+        }
+      }
+      dirtyBBox = {
+        minX: Math.min(curMinX, this.prevMinX),
+        maxX: Math.max(curMaxX, this.prevMaxX),
+        minY: Math.min(curMinY, this.prevMinY),
+        maxY: Math.max(curMaxY, this.prevMaxY),
+      }
+    } else {
+      // First frame or after invalidation: full buffer memset reset
+      targetBuffer.fill(bgIntensity)
+      dirtyBBox = {
+        minX: 0,
+        maxX: width - 1,
+        minY: 0,
+        maxY: height - 1,
+      }
+    }
+
+    // Antialiased circle drawing restricted strictly to the current dot bounding box
+    const innerRadius = Math.max(0, dotRadiusPx - 0.5)
+    const innerRadiusSq = innerRadius * innerRadius
+    const outerRadius = dotRadiusPx + 0.5
+    const outerRadiusSq = outerRadius * outerRadius
+
+    for (let y = curMinY; y <= curMaxY; y++) {
+      const dy = y - dotY
+      const dySq = dy * dy
+      const rowOffset = y * width
+      for (let x = curMinX; x <= curMaxX; x++) {
+        const dx = x - dotX
+        const distSq = dx * dx + dySq
+        const idx = rowOffset + x
+
+        if (distSq <= innerRadiusSq) {
           // Fully inside circular dot
           targetBuffer[idx] = dotIntensity
-        } else if (distToDot >= dotRadiusPx + 0.5) {
-          // Completely in stationary background
-          targetBuffer[idx] = bgIntensity
-        } else {
-          // Antialiased 1-pixel boundary
-          const coverage = (dotRadiusPx + 0.5) - distToDot
+        } else if (distSq < outerRadiusSq) {
+          // Smooth 1-pixel antialiased boundary edge to prevent digital aliasing
+          const distToDot = Math.sqrt(distSq)
+          const coverage = outerRadius - distToDot
           targetBuffer[idx] = bgIntensity + coverage * deltaIntensity
         }
       }
     }
+
+    this.prevMinX = curMinX
+    this.prevMaxX = curMaxX
+    this.prevMinY = curMinY
+    this.prevMaxY = curMaxY
+    this.hasPrevBBox = true
+
+    return dirtyBBox
   }
 }

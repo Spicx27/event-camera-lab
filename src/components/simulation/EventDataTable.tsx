@@ -28,51 +28,81 @@ export default function EventDataTable({
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [maxDisplay, setMaxDisplay] = useState(100)
 
-  // Filter and sort events for display
-  const filteredEvents = useMemo(() => {
-    let result = events
+  // High-performance display slice extractor:
+  // Since events arrive in chronological order from EventEngine, we can collect
+  // the requested slice (descending or ascending) in O(maxDisplay) without sorting 25,000 items.
+  const { displaySlice, matchCount } = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase()
+    const total = events.length
+    const slice: DvsEvent[] = []
+    let count = 0
 
-    // Polarity filter
-    if (polarityFilter === 'on') {
-      result = result.filter((e) => e.p > 0)
-    } else if (polarityFilter === 'off') {
-      result = result.filter((e) => e.p < 0)
+    const matches = (e: DvsEvent): boolean => {
+      if (polarityFilter === 'on' && e.p <= 0) return false
+      if (polarityFilter === 'off' && e.p >= 0) return false
+      if (!q) return true
+
+      if (q.startsWith('x:')) {
+        const val = parseInt(q.slice(2), 10)
+        return !isNaN(val) && e.x === val
+      }
+      if (q.startsWith('y:')) {
+        const val = parseInt(queryValue(q), 10)
+        return !isNaN(val) && e.y === val
+      }
+      if (q === 'on' || q === '+1') return e.p > 0
+      if (q === 'off' || q === '-1') return e.p < 0
+      return (
+        e.x.toString() === q ||
+        e.y.toString() === q ||
+        Math.round(e.t / 1000).toString().includes(q)
+      )
     }
 
-    // Search query (matches x:XX, y:YY, or numeric values)
-    if (searchTerm.trim()) {
-      const q = searchTerm.trim().toLowerCase()
-      result = result.filter((e) => {
-        if (q.startsWith('x:')) {
-          const val = parseInt(q.slice(2), 10)
-          return !isNaN(val) && e.x === val
-        }
-        if (q.startsWith('y:')) {
-          const val = parseInt(q.slice(2), 10)
-          return !isNaN(val) && e.y === val
-        }
-        if (q === 'on' || q === '+1') return e.p > 0
-        if (q === 'off' || q === '-1') return e.p < 0
-        return (
-          e.x.toString() === q ||
-          e.y.toString() === q ||
-          Math.round(e.t / 1000).toString().includes(q)
-        )
-      })
+    function queryValue(queryStr: string): string {
+      return queryStr.slice(2)
     }
 
-    // Sort by timestamp
-    result = [...result].sort((a, b) => {
-      return sortOrder === 'desc' ? b.t - a.t : a.t - b.t
-    })
+    if (!q && polarityFilter === 'all') {
+      count = total
+      if (sortOrder === 'desc') {
+        const start = Math.max(0, total - maxDisplay)
+        for (let i = total - 1; i >= start; i--) {
+          slice.push(events[i])
+        }
+      } else {
+        const end = Math.min(total, maxDisplay)
+        for (let i = 0; i < end; i++) {
+          slice.push(events[i])
+        }
+      }
+      return { displaySlice: slice, matchCount: count }
+    }
 
-    return result
-  }, [events, polarityFilter, searchTerm, sortOrder])
+    if (sortOrder === 'desc') {
+      for (let i = total - 1; i >= 0; i--) {
+        const ev = events[i]
+        if (matches(ev)) {
+          count++
+          if (slice.length < maxDisplay) {
+            slice.push(ev)
+          }
+        }
+      }
+    } else {
+      for (let i = 0; i < total; i++) {
+        const ev = events[i]
+        if (matches(ev)) {
+          count++
+          if (slice.length < maxDisplay) {
+            slice.push(ev)
+          }
+        }
+      }
+    }
 
-  // Slice to avoid UI lag when rendering thousands of rows
-  const displaySlice = useMemo(() => {
-    return filteredEvents.slice(0, maxDisplay)
-  }, [filteredEvents, maxDisplay])
+    return { displaySlice: slice, matchCount: count }
+  }, [events, polarityFilter, searchTerm, sortOrder, maxDisplay])
 
   // Export full window events to genuine CSV
   const handleExportCSV = () => {
@@ -622,8 +652,8 @@ export default function EventDataTable({
         }}
       >
         <span>
-          Showing {Math.min(maxDisplay, filteredEvents.length)} of {filteredEvents.length} events
-          {filteredEvents.length > maxDisplay && (
+          Showing {Math.min(maxDisplay, matchCount)} of {matchCount} events
+          {matchCount > maxDisplay && (
             <button
               onClick={() => setMaxDisplay((prev) => prev + 100)}
               style={{

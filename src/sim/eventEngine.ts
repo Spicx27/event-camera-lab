@@ -185,9 +185,15 @@ export class EventEngine {
    */
   public step(
     intensities: Float32Array | Uint8Array,
-    dtUs: number
+    dtUs: number,
+    dirtyBBox?: { minX: number; minY: number; maxX: number; maxY: number },
+    exactSimTimeUs?: number
   ): number {
-    this.currentSimTimeUs += dtUs
+    if (exactSimTimeUs !== undefined) {
+      this.currentSimTimeUs = exactSimTimeUs
+    } else {
+      this.currentSimTimeUs += dtUs
+    }
     const totalPixels = this.width * this.height
     const C = this.threshold
     let newEventsCount = 0
@@ -211,9 +217,15 @@ export class EventEngine {
     let selectedPixelSpike: 1 | -1 | 0 = 0
     const selectedIdx = this.selectedY * this.width + this.selectedX
 
-    for (let y = 0; y < this.height; y++) {
-      for (let x = 0; x < this.width; x++) {
-        const idx = y * this.width + x
+    const minX = dirtyBBox ? Math.max(0, dirtyBBox.minX) : 0
+    const maxX = dirtyBBox ? Math.min(this.width - 1, dirtyBBox.maxX) : this.width - 1
+    const minY = dirtyBBox ? Math.max(0, dirtyBBox.minY) : 0
+    const maxY = dirtyBBox ? Math.min(this.height - 1, dirtyBBox.maxY) : this.height - 1
+
+    for (let y = minY; y <= maxY; y++) {
+      const rowOffset = y * this.width
+      for (let x = minX; x <= maxX; x++) {
+        const idx = rowOffset + x
         const raw = intensities[idx]
         const I = Math.max(this.minIntensity, raw > 1 ? raw / 255 : raw)
         const L = Math.log(I)
@@ -607,6 +619,29 @@ export class EventEngine {
     return this.maxStreamHistory
   }
 
+  public getStreamHistoryCount(): number {
+    return this.streamHistoryBuffer.length
+  }
+
+  public getStreamHistoryTimeRange(): { earliestUs: number; latestUs: number } | null {
+    const len = this.streamHistoryBuffer.length
+    if (len === 0) return null
+    if (len < this.maxStreamHistory) {
+      return {
+        earliestUs: this.streamHistoryBuffer[0].t,
+        latestUs: this.streamHistoryBuffer[len - 1].t,
+      }
+    }
+    const offset = this.streamHistoryHead % this.maxStreamHistory
+    const oldest = this.streamHistoryBuffer[offset]
+    const newestIdx = (offset + len - 1) % this.maxStreamHistory
+    const newest = this.streamHistoryBuffer[newestIdx]
+    return {
+      earliestUs: oldest ? oldest.t : 0,
+      latestUs: newest ? newest.t : 0,
+    }
+  }
+
   public getStreamHistory(): DvsEvent[] {
     if (this.streamHistoryBuffer.length < this.maxStreamHistory) {
       return [...this.streamHistoryBuffer]
@@ -623,14 +658,29 @@ export class EventEngine {
     this.streamHistoryHead = 0
   }
 
-  public getStreamEventsInWindow(startUs: number, endUs: number, maxCount: number = 20000): DvsEvent[] {
-    const all = this.getStreamHistory()
+  /**
+   * High-performance window extraction directly from the internal ring buffer.
+   * Zero intermediate array allocations; breaks early when timestamps exceed endUs.
+   */
+  public getStreamEventsInWindow(startUs: number, endUs: number, maxCount: number = 25000): DvsEvent[] {
+    const len = this.streamHistoryBuffer.length
+    if (len === 0) return []
+
     const result: DvsEvent[] = []
-    for (let i = 0; i < all.length; i++) {
-      const ev = all[i]
+    const isWrapped = len === this.maxStreamHistory
+    const offset = isWrapped ? (this.streamHistoryHead % this.maxStreamHistory) : 0
+
+    // Iterate through ring buffer in strict chronological order
+    for (let i = 0; i < len; i++) {
+      const idx = isWrapped ? (offset + i) % this.maxStreamHistory : i
+      const ev = this.streamHistoryBuffer[idx]
+      if (!ev) continue
       if (ev.t >= startUs && ev.t <= endUs) {
         result.push(ev)
         if (result.length >= maxCount) break
+      } else if (ev.t > endUs) {
+        // Timestamps are non-decreasing; stop scanning once past window end
+        break
       }
     }
     return result

@@ -4,6 +4,8 @@ import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { Eye, Target, AlertTriangle, ShieldCheck } from 'lucide-react'
 
+import type { CanonicalSimulationState } from '@/sim/orbitingDotModel'
+
 export interface SourceScenePreviewProps {
   dotPixelX: number
   dotPixelY: number
@@ -17,6 +19,7 @@ export interface SourceScenePreviewProps {
   speedDegPerSec: number
   direction: 1 | -1
   illuminationLux: number
+  canonicalStateRef?: React.MutableRefObject<CanonicalSimulationState>
 }
 
 const PLANE_SIZE_3D = 3.2
@@ -31,15 +34,16 @@ function OrbitingDotScene({
   dotRadiusPx,
   resolution,
   direction,
+  canonicalStateRef,
 }: SourceScenePreviewProps) {
   const dotMeshRef = useRef<THREE.Mesh>(null)
+  const arrowGroupRef = useRef<THREE.Group>(null)
   const halfRes = (resolution - 1) / 2
   const scaleFactor = (PLANE_SIZE_3D * 0.92) / (resolution - 1)
 
   // Map sensor pixel coordinates (0..res-1) to 3D plane units [-halfSize, +halfSize]
   const dot3dX = (dotPixelX - halfRes) * scaleFactor
   const dot3dY = (halfRes - dotPixelY) * scaleFactor // invert Y for optical Cartesian plane
-  const dot3dRadius = dotRadiusPx * scaleFactor
   const orbit3dRadius = orbitalRadiusPx * scaleFactor
 
   // Circular orbit guide geometry
@@ -81,11 +85,38 @@ function OrbitingDotScene({
     return new THREE.BufferGeometry().setFromPoints(pts)
   }, [])
 
-  // Smoothly position the dot
+  // Smoothly position the dot and directional indicator at full 60 FPS in useFrame
   useFrame(() => {
+    let px = dotPixelX
+    let py = dotPixelY
+    let radPx = dotRadiusPx
+    let dir = direction
+    let curRes = resolution
+
+    if (canonicalStateRef?.current) {
+      px = canonicalStateRef.current.dotPixelX
+      py = canonicalStateRef.current.dotPixelY
+      radPx = canonicalStateRef.current.dotRadiusPx
+      dir = canonicalStateRef.current.direction
+      curRes = canonicalStateRef.current.resolution
+    }
+
+    const curHalfRes = (curRes - 1) / 2
+    const curScale = (PLANE_SIZE_3D * 0.92) / (curRes - 1)
+
+    const cur3dX = (px - curHalfRes) * curScale
+    const cur3dY = (curHalfRes - py) * curScale
+    const cur3dRadius = radPx * curScale
+
     if (dotMeshRef.current) {
-      dotMeshRef.current.position.set(dot3dX, dot3dY, 0.03)
-      dotMeshRef.current.scale.set(dot3dRadius, dot3dRadius, dot3dRadius)
+      dotMeshRef.current.position.set(cur3dX, cur3dY, 0.03)
+      dotMeshRef.current.scale.set(cur3dRadius, cur3dRadius, cur3dRadius)
+    }
+
+    if (arrowGroupRef.current) {
+      arrowGroupRef.current.position.set(cur3dX, cur3dY, 0.04)
+      const tangent = Math.atan2(cur3dY, cur3dX) + (dir === 1 ? -Math.PI / 2 : Math.PI / 2)
+      arrowGroupRef.current.rotation.z = tangent
     }
   })
 
@@ -138,7 +169,7 @@ function OrbitingDotScene({
 
       {/* Direction of Motion Indicator Arrow */}
       {orbit3dRadius > 0.2 && (
-        <group position={[dot3dX, dot3dY, 0.04]}>
+        <group ref={arrowGroupRef} position={[dot3dX, dot3dY, 0.04]}>
           <mesh
             rotation={[
               0,

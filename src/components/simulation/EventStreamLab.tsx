@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { OrbitingDotModel, type OrbitingDotState } from '@/sim/orbitingDotModel'
+import { OrbitingDotModel, type OrbitingDotState, type CanonicalSimulationState } from '@/sim/orbitingDotModel'
 import { EventEngine, type DvsEvent, type EventEngineStats, type PolarityFilter } from '@/sim/eventEngine'
 import EventStream3DViewer from './EventStream3DViewer'
 import SourceScenePreview from './SourceScenePreview'
@@ -68,17 +68,36 @@ export default function EventStreamLab() {
     return initModel.getState(64, 64)
   })
 
+  // Single authoritative canonical simulation state ref shared synchronously
+  // between the 60 FPS physics loop, 2D source preview, and 3D space-time viewer
+  const canonicalStateRef = useRef<CanonicalSimulationState>({
+    simTimeMs: 0,
+    angleRad: 0,
+    angleDeg: 0,
+    dotPixelX: 32,
+    dotPixelY: 32,
+    orbitalRadiusPx: 0.32 * 63,
+    dotRadiusPx: 3.5,
+    dotDiameterPx: 7,
+    speedRps: 1.0,
+    speedDegPerSec: 360,
+    direction: 1,
+    resolution: 64,
+    windowMs: 1000,
+    isPlaying: true,
+    scrubTimeMs: null,
+  })
+
   const eventEngineRef = useRef<EventEngine>(new EventEngine(64, 64, 0.20))
   const intensityBufferRef = useRef<Float32Array>(new Float32Array(64 * 64))
   const simClockRef = useRef<number>(0)
   const animFrameIdRef = useRef<number | null>(null)
+  const lastUiUpdateRef = useRef<number>(0)
 
   // ── Synchronize Engine Parameters ─────────────────────────────────────────
   useEffect(() => {
-    dotModelRef.current.params.speedDegPerSec = speedDegPerSec
-    dotModelRef.current.params.direction = direction
     dotModelRef.current.params.illuminationLux = illuminationLux
-  }, [speedDegPerSec, direction, illuminationLux])
+  }, [illuminationLux])
 
   useEffect(() => {
     eventEngineRef.current.setThreshold(thresholdC)
@@ -88,6 +107,114 @@ export default function EventStreamLab() {
     eventEngineRef.current.setMaxStreamHistory(maxHistoryLimit)
   }, [maxHistoryLimit])
 
+  // Synchronously mirrors the latest model and simulation clocks into canonicalStateRef
+  const syncCanonicalState = useCallback(() => {
+    const curSimMs = scrubTimeMs !== null ? scrubTimeMs : simClockRef.current
+    const st = dotModelRef.current.getStateAtTime(curSimMs / 1000, resolution, resolution)
+    canonicalStateRef.current = {
+      simTimeMs: curSimMs,
+      angleRad: st.angleRad,
+      angleDeg: st.angleDeg,
+      dotPixelX: st.dotPixelX,
+      dotPixelY: st.dotPixelY,
+      orbitalRadiusPx: st.orbitalRadiusPx,
+      dotRadiusPx: st.dotRadiusPx,
+      dotDiameterPx,
+      speedRps: st.speedRps,
+      speedDegPerSec,
+      direction,
+      resolution,
+      windowMs,
+      isPlaying,
+      scrubTimeMs,
+    }
+  }, [resolution, dotDiameterPx, speedDegPerSec, direction, windowMs, isPlaying, scrubTimeMs])
+
+  // ── Decoupled UI State Flush (Throttled to ~15 Hz during playback for zero UI stutter) ───
+  const flushUi = useCallback(() => {
+    const currentSimMs = scrubTimeMs !== null ? scrubTimeMs : simClockRef.current
+    setSimClockMs(currentSimMs)
+
+    const currentDotState = dotModelRef.current.getStateAtTime(currentSimMs / 1000, resolution, resolution)
+    setDotState(currentDotState)
+
+    const stats = eventEngineRef.current.getStats()
+    setEngineStats(stats)
+
+    setTotalHistoryCount(eventEngineRef.current.getStreamHistoryCount())
+
+    const timeRange = eventEngineRef.current.getStreamHistoryTimeRange()
+    if (timeRange) {
+      setRetainedDurationMs((timeRange.latestUs - timeRange.earliestUs) / 1000)
+    } else {
+      setRetainedDurationMs(0)
+    }
+
+    const effectiveTimeMs = currentSimMs
+    const isRampingUp = effectiveTimeMs <= windowMs
+    const activeStartUs = isRampingUp ? 0 : (effectiveTimeMs - windowMs) * 1000
+    const activeEndUs = isRampingUp ? windowMs * 1000 : effectiveTimeMs * 1000
+
+    const inWindow = eventEngineRef.current.getStreamEventsInWindow(
+      activeStartUs,
+      activeEndUs,
+      25000
+    )
+    setWindowEvents(inWindow)
+  }, [resolution, windowMs, scrubTimeMs])
+
+  // ── High-Frequency Physics & Event Generation Step (60 FPS, microsecond-accurate) ──
+  const stepPhysics = useCallback((stepDtMs: number) => {
+    const SUB_STEPS = 4
+    const subDtMs = stepDtMs / SUB_STEPS
+    const startMs = simClockRef.current
+
+    for (let s = 0; s < SUB_STEPS; s++) {
+      const subEndMs = startMs + (s + 1) * subDtMs
+      const subStartMs = startMs + s * subDtMs
+      const subDtUs = Math.round((subEndMs - subStartMs) * 1000)
+      const exactSubEndUs = Math.round(subEndMs * 1000)
+
+      dotModelRef.current.setTime(subEndMs / 1000)
+      const dirtyBBox = dotModelRef.current.sampleIntensityGrid(
+        resolution,
+        resolution,
+        intensityBufferRef.current
+      )
+      eventEngineRef.current.step(
+        intensityBufferRef.current,
+        subDtUs,
+        dirtyBBox,
+        exactSubEndUs
+      )
+    }
+
+    simClockRef.current = startMs + stepDtMs
+
+    const st = dotModelRef.current.getState(resolution, resolution)
+    canonicalStateRef.current.simTimeMs = simClockRef.current
+    canonicalStateRef.current.angleRad = st.angleRad
+    canonicalStateRef.current.angleDeg = st.angleDeg
+    canonicalStateRef.current.dotPixelX = st.dotPixelX
+    canonicalStateRef.current.dotPixelY = st.dotPixelY
+    canonicalStateRef.current.orbitalRadiusPx = st.orbitalRadiusPx
+    canonicalStateRef.current.dotRadiusPx = st.dotRadiusPx
+    canonicalStateRef.current.dotDiameterPx = dotDiameterPx
+    canonicalStateRef.current.speedRps = st.speedRps
+    canonicalStateRef.current.speedDegPerSec = speedDegPerSec
+    canonicalStateRef.current.direction = direction
+    canonicalStateRef.current.resolution = resolution
+    canonicalStateRef.current.windowMs = windowMs
+    canonicalStateRef.current.isPlaying = true
+    canonicalStateRef.current.scrubTimeMs = scrubTimeMs
+  }, [resolution, dotDiameterPx, speedDegPerSec, direction, windowMs, scrubTimeMs])
+
+  const performStep = useCallback((stepDtMs: number) => {
+    stepPhysics(stepDtMs)
+    syncCanonicalState()
+    flushUi()
+  }, [stepPhysics, syncCanonicalState, flushUi])
+
   // Handle sensor resolution change
   const handleResolutionChange = useCallback((newRes: 64 | 128) => {
     setResolution(newRes)
@@ -96,89 +223,85 @@ export default function EventStreamLab() {
     setSelectedEvent(null)
 
     // Resynchronize sensor reference to new resolution
+    dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(newRes, newRes, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
-    setDotState(dotModelRef.current.getState(newRes, newRes))
-  }, [])
+    const st = dotModelRef.current.getState(newRes, newRes)
+    setDotState(st)
+    syncCanonicalState()
+    flushUi()
+  }, [syncCanonicalState, flushUi])
 
   // Smooth parameter changes without teleportation
   const handleDotDiameterChange = useCallback((dia: number) => {
     setDotDiameterPx(dia)
     dotModelRef.current.params.dotDiameterPx = dia
+    dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
-    setDotState(dotModelRef.current.getState(resolution, resolution))
-  }, [resolution])
+    const st = dotModelRef.current.getState(resolution, resolution)
+    setDotState(st)
+    syncCanonicalState()
+    flushUi()
+  }, [resolution, syncCanonicalState, flushUi])
 
   const handleOrbitalRadiusChange = useCallback((norm: number) => {
     setOrbitalRadiusNorm(norm)
     dotModelRef.current.params.orbitalRadiusNorm = norm
+    dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
-    setDotState(dotModelRef.current.getState(resolution, resolution))
-  }, [resolution])
+    const st = dotModelRef.current.getState(resolution, resolution)
+    setDotState(st)
+    syncCanonicalState()
+    flushUi()
+  }, [resolution, syncCanonicalState, flushUi])
+
+  const handleSpeedChange = useCallback((spd: number) => {
+    setSpeedDegPerSec(spd)
+    dotModelRef.current.setAngularVelocity(spd, direction, simClockRef.current / 1000)
+    canonicalStateRef.current.speedDegPerSec = spd
+    canonicalStateRef.current.speedRps = Number((spd / 360).toFixed(2))
+    syncCanonicalState()
+    flushUi()
+  }, [direction, syncCanonicalState, flushUi])
+
+  const handleDirectionToggle = useCallback(() => {
+    setDirection((prev) => {
+      const next: 1 | -1 = prev === 1 ? -1 : 1
+      dotModelRef.current.setAngularVelocity(speedDegPerSec, next, simClockRef.current / 1000)
+      canonicalStateRef.current.direction = next
+      return next
+    })
+    syncCanonicalState()
+    flushUi()
+  }, [speedDegPerSec, syncCanonicalState, flushUi])
+
+  const handleWindowMsChange = useCallback((win: number) => {
+    setWindowMs(win)
+    canonicalStateRef.current.windowMs = win
+    syncCanonicalState()
+    flushUi()
+  }, [syncCanonicalState, flushUi])
 
   const handleThresholdChange = useCallback((c: number) => {
     setThresholdC(c)
     eventEngineRef.current.setThreshold(c)
   }, [])
 
-  // ── Single Step Simulation Advance ────────────────────────────────────────
-  const performStep = useCallback((stepDtMs: number) => {
-    // Sub-step physics integration for smooth, microsecond-accurate event timestamps
-    const SUB_STEPS = 4
-    const subDtMs = stepDtMs / SUB_STEPS
-    const subDtSeconds = subDtMs / 1000
-    const subDtMicroseconds = Math.round(subDtMs * 1000)
-
-    for (let s = 0; s < SUB_STEPS; s++) {
-      simClockRef.current += subDtMs
-      dotModelRef.current.update(subDtSeconds)
-      dotModelRef.current.sampleIntensityGrid(
-        resolution,
-        resolution,
-        intensityBufferRef.current
-      )
-      eventEngineRef.current.step(intensityBufferRef.current, subDtMicroseconds)
+  const handleScrubChange = useCallback((time: number | null) => {
+    setScrubTimeMs(time)
+    canonicalStateRef.current.scrubTimeMs = time
+    if (time !== null) {
+      setIsLiveFollow(false)
+      if (isPlaying) {
+        setIsPlaying(false)
+        canonicalStateRef.current.isPlaying = false
+      }
     }
-
-    const currentSimMs = simClockRef.current
-    setSimClockMs(currentSimMs)
-
-    // Current authoritative physical dot state
-    const currentDotState = dotModelRef.current.getState(resolution, resolution)
-    setDotState(currentDotState)
-
-    // Engine statistics
-    const stats = eventEngineRef.current.getStats()
-    setEngineStats(stats)
-
-    const allHistory = eventEngineRef.current.getStreamHistory()
-    setTotalHistoryCount(allHistory.length)
-
-    if (allHistory.length > 0) {
-      const earliestUs = allHistory[0].t
-      const latestUs = allHistory[allHistory.length - 1].t
-      setRetainedDurationMs((latestUs - earliestUs) / 1000)
-    } else {
-      setRetainedDurationMs(0)
-    }
-
-    // Determine active time window:
-    // When simTime < windowMs: window is [0, windowMs]
-    // When simTime >= windowMs: rolling window is [simTime - windowMs, simTime]
-    const effectiveTimeMs = scrubTimeMs !== null ? scrubTimeMs : currentSimMs
-    const isRampingUp = effectiveTimeMs <= windowMs
-    const activeStartUs = isRampingUp ? 0 : (effectiveTimeMs - windowMs) * 1000
-    const activeEndUs = isRampingUp ? windowMs * 1000 : effectiveTimeMs * 1000
-
-    const inWindow = eventEngineRef.current.getStreamEventsInWindow(
-      activeStartUs,
-      activeEndUs,
-      30000
-    )
-    setWindowEvents(inWindow)
-  }, [resolution, windowMs, scrubTimeMs])
+    syncCanonicalState()
+    flushUi()
+  }, [isPlaying, syncCanonicalState, flushUi])
 
   // ── Scrubbing Update Effect ───────────────────────────────────────────────
   useEffect(() => {
@@ -189,7 +312,7 @@ export default function EventStreamLab() {
       const inWindow = eventEngineRef.current.getStreamEventsInWindow(
         activeStartUs,
         activeEndUs,
-        30000
+        25000
       )
       setWindowEvents(inWindow)
     }
@@ -209,12 +332,19 @@ export default function EventStreamLab() {
 
     const loop = (now: number) => {
       const elapsed = now - lastTick
+      lastTick = now
 
-      // Throttle simulation step to ~30-40 Hz for optimal frame budget and physics fidelity
-      if (elapsed >= 25) {
-        lastTick = now
-        const stepMs = Math.min(elapsed, 40) // cap maximum step to avoid large jumps
-        performStep(stepMs)
+      // Cap stepDtMs to avoid physics jumps when tab is backgrounded
+      const stepDtMs = Math.min(elapsed, 40)
+      if (stepDtMs > 0) {
+        stepPhysics(stepDtMs)
+      }
+
+      // Throttle React UI state updates to ~15 Hz (every ~66ms)
+      // This leaves full main thread capacity for silky 60 FPS WebGL rendering
+      if (now - lastUiUpdateRef.current >= 66) {
+        lastUiUpdateRef.current = now
+        flushUi()
       }
 
       animFrameIdRef.current = requestAnimationFrame(loop)
@@ -228,24 +358,43 @@ export default function EventStreamLab() {
         animFrameIdRef.current = null
       }
     }
-  }, [isPlaying, performStep])
+  }, [isPlaying, stepPhysics, flushUi])
 
   // ── Playback Controls Handlers ─────────────────────────────────────────────
   const handleTogglePlay = () => {
-    if (!isPlaying && scrubTimeMs !== null) {
-      setScrubTimeMs(null)
-      setIsLiveFollow(true)
+    if (isPlaying) {
+      // Pausing: stop immediately, freeze authoritative state synchronously
+      setIsPlaying(false)
+      canonicalStateRef.current.isPlaying = false
+      syncCanonicalState()
+      flushUi()
+    } else {
+      // Resuming: clear scrub override if any
+      if (scrubTimeMs !== null) {
+        setScrubTimeMs(null)
+        setIsLiveFollow(true)
+        canonicalStateRef.current.scrubTimeMs = null
+      }
+      setIsPlaying(true)
+      canonicalStateRef.current.isPlaying = true
+      syncCanonicalState()
+      flushUi()
     }
-    setIsPlaying((prev) => !prev)
   }
 
   const handleStop = () => {
     setIsPlaying(false)
+    canonicalStateRef.current.isPlaying = false
+    syncCanonicalState()
+    flushUi()
   }
 
   const handleStep = () => {
-    if (isPlaying) setIsPlaying(false)
-    performStep(16.7)
+    if (isPlaying) {
+      setIsPlaying(false)
+      canonicalStateRef.current.isPlaying = false
+    }
+    performStep(16.67)
   }
 
   const handleReset = () => {
@@ -279,17 +428,8 @@ export default function EventStreamLab() {
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
 
-    setDotState(dotModelRef.current.getState(resolution, resolution))
-    setWindowEvents([])
-    setTotalHistoryCount(0)
-    setRetainedDurationMs(0)
-    setEngineStats({
-      totalEvents: 0,
-      onEvents: 0,
-      offEvents: 0,
-      eventRatePerSec: 0,
-      simulatedTimeUs: 0,
-    })
+    syncCanonicalState()
+    flushUi()
   }
 
   // Preset Applier
@@ -308,16 +448,21 @@ export default function EventStreamLab() {
 
     dotModelRef.current.params.dotDiameterPx = preset.dotDiameter
     dotModelRef.current.params.orbitalRadiusNorm = preset.orbitalRadius
-    dotModelRef.current.params.speedDegPerSec = preset.speed
+    dotModelRef.current.setAngularVelocity(preset.speed, direction, simClockRef.current / 1000)
     eventEngineRef.current.setThreshold(preset.threshold)
 
+    dotModelRef.current.invalidateDirtyBBox()
     dotModelRef.current.sampleIntensityGrid(resolution, resolution, intensityBufferRef.current)
     eventEngineRef.current.syncReferenceToIntensities(intensityBufferRef.current)
 
-    setDotState(dotModelRef.current.getState(resolution, resolution))
     setScrubTimeMs(null)
     setIsLiveFollow(true)
-    if (!isPlaying && preset.speed > 0) setIsPlaying(true)
+    if (!isPlaying && preset.speed > 0) {
+      setIsPlaying(true)
+      canonicalStateRef.current.isPlaying = true
+    }
+    syncCanonicalState()
+    flushUi()
   }
 
   return (
@@ -440,6 +585,8 @@ export default function EventStreamLab() {
             onPolarityFilterChange={setPolarityFilter}
             pointSize={pointSize}
             onRenderedCountChange={setRenderedCount}
+            canonicalStateRef={canonicalStateRef}
+            eventEngineRef={eventEngineRef}
           />
         </div>
 
@@ -464,6 +611,7 @@ export default function EventStreamLab() {
             speedDegPerSec={speedDegPerSec}
             direction={direction}
             illuminationLux={illuminationLux}
+            canonicalStateRef={canonicalStateRef}
           />
         </div>
       </div>
@@ -478,9 +626,9 @@ export default function EventStreamLab() {
         simTimeMs={simClockMs}
         retainedDurationMs={retainedDurationMs}
         windowMs={windowMs}
-        onWindowMsChange={setWindowMs}
+        onWindowMsChange={handleWindowMsChange}
         scrubTimeMs={scrubTimeMs}
-        onScrubChange={setScrubTimeMs}
+        onScrubChange={handleScrubChange}
         isLiveFollow={isLiveFollow}
         onToggleLiveFollow={() => {
           setIsLiveFollow((prev) => {
@@ -495,9 +643,9 @@ export default function EventStreamLab() {
         orbitalRadiusNorm={orbitalRadiusNorm}
         onOrbitalRadiusChange={handleOrbitalRadiusChange}
         speedDegPerSec={speedDegPerSec}
-        onSpeedChange={setSpeedDegPerSec}
+        onSpeedChange={handleSpeedChange}
         direction={direction}
-        onDirectionToggle={() => setDirection((d) => (d === 1 ? -1 : 1))}
+        onDirectionToggle={handleDirectionToggle}
         thresholdC={thresholdC}
         onThresholdChange={handleThresholdChange}
         resolution={resolution}

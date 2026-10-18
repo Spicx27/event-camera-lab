@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { Clock, Compass, Layers, RotateCcw, Target, ZoomIn } from 'lucide-react'
-import type { DvsEvent, PolarityFilter } from '@/sim/eventEngine'
+import type { DvsEvent, EventEngine, PolarityFilter } from '@/sim/eventEngine'
+import type { CanonicalSimulationState } from '@/sim/orbitingDotModel'
 
 export type StreamPOV = 'perspective' | 'front_sensor' | 'side_time_y' | 'top_time_x'
 
-interface EventStream3DViewerProps {
+export interface EventStream3DViewerProps {
   events: DvsEvent[]
   selectedEvent: DvsEvent | null
   onSelectEvent: (event: DvsEvent | null) => void
@@ -19,14 +20,19 @@ interface EventStream3DViewerProps {
   onPolarityFilterChange?: (filter: PolarityFilter) => void
   pointSize: number
   onRenderedCountChange?: (count: number) => void
+  canonicalStateRef?: React.MutableRefObject<CanonicalSimulationState>
+  eventEngineRef?: React.MutableRefObject<EventEngine>
 }
 
 const MAX_RENDER_POINTS = 25000
 const SPATIAL_SIZE = 2.8 // Width and Height in 3D scene units
 const TIME_LENGTH = 6.2  // Depth along Z axis in 3D scene units
 
+
 /**
- * High-performance batched point cloud rendering for 3D event stream (x, y, t)
+ * High-performance batched point cloud rendering for 3D event stream (x, y, t).
+ * Driven directly in useFrame from canonicalStateRef and eventEngineRef,
+ * guaranteeing instantaneous synchronization and 0 lag behind the 2D dot.
  */
 function EventPointCloud({
   events,
@@ -39,6 +45,8 @@ function EventPointCloud({
   polarityFilter,
   pointSize,
   onRenderedCountChange,
+  canonicalStateRef,
+  eventEngineRef,
 }: EventStream3DViewerProps) {
   const pointsRef = useRef<THREE.Points>(null)
   const { camera, mouse } = useThree()
@@ -55,51 +63,80 @@ function EventPointCloud({
     return geom
   })
 
-  // Filtered event subset and draw count
-  const filteredEvents = useMemo(() => {
-    return events.filter(e => {
-      if (polarityFilter === 'on') return e.p === 1
-      if (polarityFilter === 'off') return e.p === -1
-      return true
-    })
-  }, [events, polarityFilter])
+  const renderedEventsRef = useRef<DvsEvent[]>([])
+  const lastRenderedCountRef = useRef<number>(-1)
+  const lastProcessedSimTimeRef = useRef<number>(-999999)
 
-  // Update buffer geometry attributes directly
-  useEffect(() => {
+  // High-performance direct buffer update loop at 60 FPS
+  useFrame(() => {
     const pointsMesh = pointsRef.current
     if (!pointsMesh) return
+
+    const state = canonicalStateRef?.current
+    const engine = eventEngineRef?.current
+
+    // Authoritative time: scrubTimeMs takes precedence if active, else continuous simTimeMs
+    const curSimMs = state
+      ? (state.scrubTimeMs !== null ? state.scrubTimeMs : state.simTimeMs)
+      : simTimeMs
+    const curWindowMs = state ? state.windowMs : windowMs
+    const curWidth = state ? state.resolution : width
+    const curHeight = state ? state.resolution : height
+    const isPlaying = state ? state.isPlaying : true
+
+    // Performance optimization: When paused and time has not changed, skip redundant work
+    if (!isPlaying && Math.abs(curSimMs - lastProcessedSimTimeRef.current) < 0.0001) {
+      return
+    }
+    lastProcessedSimTimeRef.current = curSimMs
+
+    // Two-phase monotonic time window mapping:
+    // 1. Initial ramp-up (simTimeMs <= windowMs): window is [0, windowMs]
+    // 2. Rolling window (simTimeMs > windowMs): window is [simTimeMs - windowMs, simTimeMs]
+    const isRampingUp = curSimMs <= curWindowMs
+    const tEndMs = isRampingUp ? curWindowMs : curSimMs
+    const tStartMs = isRampingUp ? 0 : curSimMs - curWindowMs
+    const tEndUs = tEndMs * 1000
+    const tStartUs = tStartMs * 1000
+    const windowSpanUs = Math.max(1, tEndUs - tStartUs)
+
+    const invWidth = 1 / (curWidth - 1)
+    const invHeight = 1 / (curHeight - 1)
+    const invWindowSpan = 1 / windowSpanUs
+
+    // Direct extraction from ring buffer
+    const eventList = engine
+      ? engine.getStreamEventsInWindow(tStartUs, tEndUs, MAX_RENDER_POINTS)
+      : events
 
     const geom = pointsMesh.geometry
     const posAttr = geom.getAttribute('position') as THREE.BufferAttribute
     const colAttr = geom.getAttribute('color') as THREE.BufferAttribute
     const positions = posAttr.array as Float32Array
     const colors = colAttr.array as Float32Array
-    const count = Math.min(filteredEvents.length, MAX_RENDER_POINTS)
 
-    // Two-phase monotonic time mapping:
-    // 1. Initial ramp-up (simTimeMs <= windowMs): window is [0, windowMs]
-    // 2. Rolling window (simTimeMs > windowMs): window is [simTimeMs - windowMs, simTimeMs]
-    const isRampingUp = simTimeMs <= windowMs
-    const tEndMs = isRampingUp ? windowMs : simTimeMs
-    const tStartMs = isRampingUp ? 0 : simTimeMs - windowMs
-    const tEndUs = tEndMs * 1000
-    const tStartUs = tStartMs * 1000
-    const windowSpanUs = Math.max(1, tEndUs - tStartUs)
+    const renderedList: DvsEvent[] = []
+    let count = 0
+    const totalEvents = eventList.length
 
-    for (let i = 0; i < count; i++) {
-      const ev = filteredEvents[i]
-      const pIdx = i * 3
+    for (let i = 0; i < totalEvents && count < MAX_RENDER_POINTS; i++) {
+      const ev = eventList[i]
+      if (polarityFilter === 'on' && ev.p !== 1) continue
+      if (polarityFilter === 'off' && ev.p !== -1) continue
+
+      renderedList.push(ev)
+      const pIdx = count * 3
 
       // Coordinate mapping:
       // X-axis: Horizontal sensor coordinate [0..width-1] -> [-SPATIAL_SIZE/2, +SPATIAL_SIZE/2]
-      const x3d = ((ev.x / (width - 1)) - 0.5) * SPATIAL_SIZE
+      const x3d = ((ev.x * invWidth) - 0.5) * SPATIAL_SIZE
 
-      // Y-axis: Vertical sensor coordinate [0..height-1] -> [+SPATIAL_SIZE/2, -SPATIAL_SIZE/2] (inverted for standard optical orientation)
-      const y3d = (0.5 - (ev.y / (height - 1))) * SPATIAL_SIZE
+      // Y-axis: Vertical sensor coordinate [0..height-1] -> [+SPATIAL_SIZE/2, -SPATIAL_SIZE/2] (inverted for optical coordinate frame)
+      const y3d = (0.5 - (ev.y * invHeight)) * SPATIAL_SIZE
 
       // Z-axis: Simulation time t -> [-TIME_LENGTH/2, +TIME_LENGTH/2]
-      // Older events near -TIME_LENGTH/2, newest events near +TIME_LENGTH/2 (facing viewer)
-      const relTime = Math.max(0, Math.min(1, (ev.t - tStartUs) / windowSpanUs))
+      // Older events near -TIME_LENGTH/2, newest events near +TIME_LENGTH/2
+      const relTime = Math.max(0, Math.min(1, (ev.t - tStartUs) * invWindowSpan))
       const z3d = (relTime - 0.5) * TIME_LENGTH
 
       positions[pIdx] = x3d
@@ -116,31 +153,35 @@ function EventPointCloud({
         colors[pIdx + 1] = 0.85
         colors[pIdx + 2] = 1.0
       } else if (ev.p === 1) {
-        // Pure White for ON
         colors[pIdx] = 1.0
         colors[pIdx + 1] = 1.0
         colors[pIdx + 2] = 1.0
       } else {
-        // Distinct High-Contrast Silver-Grey for OFF
         colors[pIdx] = 0.65
         colors[pIdx + 1] = 0.65
         colors[pIdx + 2] = 0.65
       }
+
+      count++
     }
 
-    geom.attributes.position.needsUpdate = true
-    geom.attributes.color.needsUpdate = true
+    renderedEventsRef.current = renderedList
+
+    posAttr.needsUpdate = true
+    colAttr.needsUpdate = true
     geom.setDrawRange(0, count)
 
-    if (onRenderedCountChange) {
+    if (onRenderedCountChange && count !== lastRenderedCountRef.current) {
+      lastRenderedCountRef.current = count
       onRenderedCountChange(count)
     }
-  }, [filteredEvents, selectedEvent, width, height, windowMs, simTimeMs, onRenderedCountChange])
+  })
 
   // Click raycasting on event points
   const handlePointerDown = () => {
     const pointsMesh = pointsRef.current
-    if (!pointsMesh || filteredEvents.length === 0) return
+    const drawnEvents = renderedEventsRef.current
+    if (!pointsMesh || drawnEvents.length === 0) return
 
     const rc = localRaycasterRef.current
     rc.params.Points = { threshold: 0.12 }
@@ -149,8 +190,8 @@ function EventPointCloud({
 
     if (intersects.length > 0 && intersects[0].index !== undefined) {
       const idx = intersects[0].index
-      if (idx < filteredEvents.length) {
-        onSelectEvent(filteredEvents[idx])
+      if (idx < drawnEvents.length) {
+        onSelectEvent(drawnEvents[idx])
       }
     }
   }
@@ -158,6 +199,7 @@ function EventPointCloud({
   // Calculate 3D position of selected event for highlight reticle
   const selected3dPos = useMemo<THREE.Vector3 | null>(() => {
     if (!selectedEvent) return null
+
     const isRampingUp = simTimeMs <= windowMs
     const tEndMs = isRampingUp ? windowMs : simTimeMs
     const tStartMs = isRampingUp ? 0 : simTimeMs - windowMs
@@ -221,19 +263,10 @@ function EventPointCloud({
 }
 
 /**
- * Renders the 3D Space-Time Coordinate Frame, Rails, Planes, and Axis Labels
+ * Renders the 3D Space-Time Coordinate Frame, Rails, Planes, and GPU Tick Notches.
+ * Completely eliminates DOM-thrashing Html nodes from the render loop.
  */
-function SpaceTimeVolumeFrame({
-  windowMs,
-  simTimeMs,
-  width,
-  height,
-}: {
-  windowMs: number
-  simTimeMs: number
-  width: number
-  height: number
-}) {
+function SpaceTimeVolumeFrame() {
   const halfS = SPATIAL_SIZE / 2
   const halfT = TIME_LENGTH / 2
 
@@ -249,8 +282,7 @@ function SpaceTimeVolumeFrame({
       // Bottom-Left rail
       new THREE.Vector3(-halfS, -halfS, -halfT), new THREE.Vector3(-halfS, -halfS, halfT),
     ]
-    const geom = new THREE.BufferGeometry().setFromPoints(points)
-    return geom
+    return new THREE.BufferGeometry().setFromPoints(points)
   }, [halfS, halfT])
 
   // Sensor face wireframe rectangles at front (t_now) and back (t_now - Δt)
@@ -270,20 +302,37 @@ function SpaceTimeVolumeFrame({
     return new THREE.BufferGeometry().setFromPoints(pts)
   }, [halfS, halfT])
 
-  const isRampingUp = simTimeMs <= windowMs
-  const tEndMs = isRampingUp ? Math.round(windowMs) : Math.round(simTimeMs)
-  const tStartMs = isRampingUp ? 0 : Math.round(simTimeMs - windowMs)
+  // 3D Time Tick Notches along the lower rails (GPU line segments, 0 DOM overhead)
+  const tickNotches = useMemo(() => {
+    const pts: THREE.Vector3[] = []
+    const fractions = [0, 0.25, 0.5, 0.75, 1.0]
+    for (const frac of fractions) {
+      const tickZ = (frac - 0.5) * TIME_LENGTH
+      // Bottom-left rail tick notch
+      pts.push(new THREE.Vector3(-halfS - 0.12, -halfS, tickZ))
+      pts.push(new THREE.Vector3(-halfS, -halfS, tickZ))
+      // Bottom-right rail tick notch
+      pts.push(new THREE.Vector3(halfS + 0.12, -halfS, tickZ))
+      pts.push(new THREE.Vector3(halfS, -halfS, tickZ))
+    }
+    return new THREE.BufferGeometry().setFromPoints(pts)
+  }, [halfS])
 
   return (
     <group>
       {/* 4 Corner Rails along Time (Z) */}
       <lineSegments geometry={railLines}>
-        <lineBasicMaterial color="#334155" transparent opacity={0.6} />
+        <lineBasicMaterial color="#334155" transparent opacity={0.65} />
       </lineSegments>
 
       {/* Sensor plane boundary rectangles */}
       <lineSegments geometry={planeFrames}>
         <lineBasicMaterial color="#38bdf8" transparent opacity={0.85} />
+      </lineSegments>
+
+      {/* Time Tick Notches on Rails */}
+      <lineSegments geometry={tickNotches}>
+        <lineBasicMaterial color="#06b6d4" transparent opacity={0.75} />
       </lineSegments>
 
       {/* Front Sensor Plane Grid (t = t_end) */}
@@ -295,105 +344,6 @@ function SpaceTimeVolumeFrame({
       <group position={[0, 0, -halfT]} rotation={[Math.PI / 2, 0, 0]}>
         <gridHelper args={[SPATIAL_SIZE, 8, '#64748b', '#1e293b']} />
       </group>
-
-      {/* Intermediate Time Ticks along Z Axis */}
-      {[0, 0.25, 0.5, 0.75, 1.0].map((frac, idx) => {
-        const tickZ = (frac - 0.5) * TIME_LENGTH
-        const tickMs = Math.round(tStartMs + frac * (tEndMs - tStartMs))
-        return (
-          <group key={idx} position={[-halfS - 0.15, -halfS, tickZ]}>
-            <Html center style={{ pointerEvents: 'none' }}>
-              <div
-                style={{
-                  fontSize: '0.60rem',
-                  fontFamily: 'var(--font-mono)',
-                  color: frac === 1.0 ? 'var(--color-cyan)' : '#94a3b8',
-                  background: 'rgba(5, 13, 26, 0.88)',
-                  padding: '0.12rem 0.35rem',
-                  borderRadius: 3,
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tickMs} ms
-              </div>
-            </Html>
-          </group>
-        )
-      })}
-
-      {/* 3D Axis Labels & HTML Tick Marks */}
-      {/* Time Axis Arrow & Label */}
-      <Html position={[0, -halfS - 0.32, 0]} center style={{ pointerEvents: 'none' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.2rem 0.5rem',
-            background: 'rgba(5, 13, 26, 0.88)',
-            border: '1px solid #38bdf8',
-            borderRadius: 4,
-            fontSize: '0.68rem',
-            fontFamily: 'var(--font-mono)',
-            color: '#38bdf8',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Clock size={11} />
-          <span>TIME AXIS (Z) ➔ [{tStartMs} ms ... {tEndMs} ms] (Δt = {windowMs} ms)</span>
-        </div>
-      </Html>
-
-      {/* Front Plane Label (Latest Time) */}
-      <Html position={[0, halfS + 0.2, halfT]} center style={{ pointerEvents: 'none' }}>
-        <div
-          style={{
-            padding: '0.15rem 0.4rem',
-            background: 'rgba(6, 182, 212, 0.15)',
-            border: '1px solid var(--color-cyan)',
-            borderRadius: 4,
-            fontSize: '0.64rem',
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--color-cyan)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Sensor Plane at t = {tEndMs} ms (Head / Current)
-        </div>
-      </Html>
-
-      {/* Back Plane Label (Earliest Time in Window) */}
-      <Html position={[0, halfS + 0.2, -halfT]} center style={{ pointerEvents: 'none' }}>
-        <div
-          style={{
-            padding: '0.15rem 0.4rem',
-            background: 'rgba(100, 116, 139, 0.15)',
-            border: '1px solid #64748b',
-            borderRadius: 4,
-            fontSize: '0.64rem',
-            fontFamily: 'var(--font-mono)',
-            color: '#94a3b8',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Sensor Plane at t = {tStartMs} ms (Tail / Window Start)
-        </div>
-      </Html>
-
-      {/* X Axis Label */}
-      <Html position={[0, -halfS - 0.18, halfT]} center style={{ pointerEvents: 'none' }}>
-        <div style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: '#94a3b8', whiteSpace: 'nowrap' }}>
-          ← Sensor X [0..{width - 1} px] →
-        </div>
-      </Html>
-
-      {/* Y Axis Label */}
-      <Html position={[-halfS - 0.22, 0, halfT]} center style={{ pointerEvents: 'none' }}>
-        <div style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: '#94a3b8', transform: 'rotate(-90deg)', whiteSpace: 'nowrap' }}>
-          ← Sensor Y [0..{height - 1} px] →
-        </div>
-      </Html>
     </group>
   )
 }
@@ -432,6 +382,10 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
     setPov('perspective')
     setCameraKey(prev => prev + 1)
   }
+
+  const isRampingUp = props.simTimeMs <= props.windowMs
+  const tEndMs = isRampingUp ? Math.round(props.windowMs) : Math.round(props.simTimeMs)
+  const tStartMs = isRampingUp ? 0 : Math.round(props.simTimeMs - props.windowMs)
 
   return (
     <div
@@ -649,12 +603,7 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
             minDistance={2.5}
           />
 
-          <SpaceTimeVolumeFrame
-            windowMs={props.windowMs}
-            simTimeMs={props.simTimeMs}
-            width={props.width}
-            height={props.height}
-          />
+          <SpaceTimeVolumeFrame />
 
           <EventPointCloud {...props} />
         </Canvas>
@@ -697,6 +646,40 @@ export default function EventStream3DViewer(props: EventStream3DViewerProps) {
                 0 events in window (Target stationary or threshold unreached)
               </span>
             )}
+          </div>
+        </div>
+
+        {/* Space-Time Coordinate Axis HUD (Bottom-Left) */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            left: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.25rem',
+            padding: '0.45rem 0.75rem',
+            background: 'rgba(5, 13, 26, 0.92)',
+            backdropFilter: 'blur(6px)',
+            borderRadius: 6,
+            fontSize: '0.68rem',
+            fontFamily: 'var(--font-mono)',
+            border: '1px solid var(--color-border-subtle)',
+            zIndex: 10,
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.5)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 700 }}>
+            <Clock size={12} />
+            <span>TIME AXIS (Z): [{tStartMs} ms ... {tEndMs} ms] (Δt = {props.windowMs} ms)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.64rem' }}>
+            <span><strong style={{ color: '#06b6d4' }}>Front Plane (Z=+):</strong> Head (t = {tEndMs} ms)</span>
+            <span>·</span>
+            <span><strong style={{ color: '#64748b' }}>Back Plane (Z=-):</strong> Tail (t = {tStartMs} ms)</span>
+          </div>
+          <div style={{ color: '#64748b', fontSize: '0.62rem' }}>
+            Sensor X: [0..{props.width - 1} px] · Sensor Y: [0..{props.height - 1} px]
           </div>
         </div>
 

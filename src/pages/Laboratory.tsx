@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { FlaskConical, Pause, Play, RefreshCw, Sliders } from 'lucide-react'
+import { Activity, ArrowRight, Box, FlaskConical, Layers, Pause, Play, RefreshCw, Sliders } from 'lucide-react'
+import BiologicalVsEventSim from '@/components/simulation/BiologicalVsEventSim'
+import EventStreamLab from '@/components/simulation/EventStreamLab'
 
 /* ── Types ───────────────────────────────────── */
 interface LabEvent {
@@ -246,6 +248,8 @@ function StatsPanel({ events }: { events: LabEvent[] }) {
 
 /* ── Page ────────────────────────────────────── */
 export default function LaboratoryPage() {
+  const [activeTab, setActiveTab] = useState<'3d-sim1' | '3d-sim2' | '2d-stream'>('3d-sim1')
+
   const [params, setParams] = useState<SimParams>({
     threshold:  0.25,
     noiseLevel: 0.15,
@@ -264,217 +268,145 @@ export default function LaboratoryPage() {
       <div
         style={{
           background:
-            'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(20,184,166,0.07) 0%, transparent 70%), var(--color-bg-deep)',
+            'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(6,182,212,0.08) 0%, transparent 70%), var(--color-bg-deep)',
           borderBottom: '1px solid var(--color-border-subtle)',
-          padding: '4rem 0 3rem',
+          padding: '3.5rem 0 2rem',
         }}
       >
         <div className="container">
-          <p className="section-label">Interactive</p>
-          <h1 style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+            <span className="badge badge--cyan">Interactive Photonics Testbench</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+              Deterministic DVS Physical Simulation
+            </span>
+          </div>
+          <h1 style={{ marginBottom: '0.75rem' }}>
             <FlaskConical
               size={28}
               style={{
                 verticalAlign: 'middle',
                 marginRight: '0.5rem',
-                color: 'var(--color-teal)',
+                color: 'var(--color-cyan)',
               }}
             />
             Event Camera Laboratory
           </h1>
-          <p style={{ fontSize: '1.05rem', maxWidth: '60ch' }}>
-            Watch a synthetic event stream generated in real time. Tune the contrast
-            threshold, noise level, and motion speed to see how they affect the
-            asynchronous event data.
+          <p style={{ fontSize: '1rem', maxWidth: '65ch', marginBottom: '1.75rem' }}>
+            Explore physical simulations comparing conventional frame-based exposure sampling
+            with biologically inspired asynchronous temporal contrast sensing.
           </p>
+
+          {/* Tab selector */}
+          <div
+            style={{
+              display: 'inline-flex',
+              flexWrap: 'wrap',
+              background: 'rgba(10, 22, 40, 0.8)',
+              padding: '0.35rem',
+              borderRadius: 10,
+              border: '1px solid var(--color-border)',
+              gap: '0.4rem',
+            }}
+          >
+            <button
+              onClick={() => setActiveTab('3d-sim1')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 1rem',
+                borderRadius: 7,
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+                background: activeTab === '3d-sim1' ? 'var(--color-cyan)' : 'transparent',
+                color: activeTab === '3d-sim1' ? '#050d1a' : 'var(--color-text-secondary)',
+              }}
+            >
+              <Box size={16} />
+              <span>Sim 1: Frame vs Event Camera</span>
+              <span
+                style={{
+                  fontSize: '0.65rem',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: 4,
+                  fontWeight: 700,
+                  background: activeTab === '3d-sim1' ? '#050d1a' : 'rgba(6,182,212,0.18)',
+                  color: activeTab === '3d-sim1' ? 'var(--color-cyan)' : 'var(--color-cyan)',
+                }}
+              >
+                LIVE 3D
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('3d-sim2')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 1rem',
+                borderRadius: 7,
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+                background: activeTab === '3d-sim2' ? 'var(--color-cyan)' : 'transparent',
+                color: activeTab === '3d-sim2' ? '#050d1a' : 'var(--color-text-secondary)',
+              }}
+            >
+              <Activity size={16} />
+              <span>Sim 2: 3D Event Stream & Data Lab</span>
+              <span
+                style={{
+                  fontSize: '0.65rem',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: 4,
+                  fontWeight: 700,
+                  background: activeTab === '3d-sim2' ? '#050d1a' : 'rgba(6,182,212,0.18)',
+                  color: activeTab === '3d-sim2' ? 'var(--color-cyan)' : 'var(--color-cyan)',
+                }}
+              >
+                LIVE 3D
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('2d-stream')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 1rem',
+                borderRadius: 7,
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+                background: activeTab === '2d-stream' ? 'var(--color-bg-elevated)' : 'transparent',
+                color: activeTab === '2d-stream' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+              }}
+            >
+              <Layers size={16} />
+              <span>2D Stream Simulator</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <section className="section">
+      <section className="section" style={{ paddingTop: '2.5rem' }}>
         <div className="container">
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 320px',
-              gap: '2rem',
-              alignItems: 'start',
-            }}
-          >
-            {/* Left: canvas + stats */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      color: 'var(--color-text-muted)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    Event Frame — {CANVAS_W}×{CANVAS_H} px
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--color-cyan)' }}>
-                      ■ ON events
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>
-                      ■ OFF events
-                    </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    className="btn btn--ghost"
-                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
-                    onClick={() => set('running', !params.running)}
-                  >
-                    {params.running ? <Pause size={14} /> : <Play size={14} />}
-                    {params.running ? 'Pause' : 'Resume'}
-                  </button>
-                  <button
-                    className="btn btn--ghost"
-                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
-                    onClick={reset}
-                  >
-                    <RefreshCw size={14} />
-                    Reset
-                  </button>
-                </div>
-              </div>
-
-              <EventCanvas events={events} />
-              <StatsPanel events={events} />
-
-              {/* Legend & Presentation Reference */}
-              <p
-                style={{
-                  fontSize: '0.78rem',
-                  color: 'var(--color-text-secondary)',
-                  fontFamily: 'var(--font-mono)',
-                  lineHeight: 1.6,
-                  padding: '0.75rem 1rem',
-                  background: 'var(--color-bg-deep)',
-                  border: '1px solid var(--color-border-subtle)',
-                  borderRadius: 8,
-                }}
-              >
-                <strong style={{ color: 'var(--color-cyan)' }}>Event Trigger Model (Slide 9):</strong> Each pixel fires an
-                asynchronous event <code style={{ color: 'var(--color-cyan)' }}>e_k = (x_k, y_k, t_k, p_k)</code> whenever local logarithmic intensity changes
-                satisfy <code style={{ color: 'var(--color-cyan)' }}>L(x, y, t_k) - L(x, y, t_last) = pC</code>.
-                Cyan = positive polarity <code style={{ color: 'var(--color-cyan)' }}>p = +1 (ON / Brighter)</code>,
-                Red = negative polarity <code style={{ color: '#ef4444' }}>p = -1 (OFF / Darker)</code>.
-              </p>
-            </div>
-
-            {/* Right: controls */}
-            <div
-              className="card"
-              style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Sliders size={16} color="var(--color-cyan)" />
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                  Simulation Controls
-                </span>
-              </div>
-
-              <LabelledSlider
-                label="Contrast Threshold (C)"
-                min={0.05}
-                max={0.8}
-                step={0.01}
-                value={params.threshold}
-                unit=""
-                onChange={v => set('threshold', v)}
-              />
-              <LabelledSlider
-                label="Noise Level"
-                min={0}
-                max={1}
-                step={0.01}
-                value={params.noiseLevel}
-                unit=""
-                onChange={v => set('noiseLevel', v)}
-              />
-              <LabelledSlider
-                label="Motion Speed"
-                min={0.2}
-                max={3}
-                step={0.1}
-                value={params.speed}
-                unit="×"
-                onChange={v => set('speed', v)}
-              />
+          {activeTab === '3d-sim1' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3.5rem' }}>
+              <BiologicalVsEventSim />
 
               <div className="divider" />
 
-              {/* Parameter info */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {[
-                  {
-                    term: 'Low threshold',
-                    desc: 'More events, higher bandwidth, more noise sensitivity',
-                  },
-                  {
-                    term: 'High threshold',
-                    desc: 'Fewer events, only strong edges and fast motion',
-                  },
-                  {
-                    term: 'High speed',
-                    desc: 'Denser event bursts along edges of moving objects',
-                  },
-                ].map(({ term, desc }) => (
-                  <div
-                    key={term}
-                    style={{
-                      padding: '0.6rem 0.75rem',
-                      background: 'var(--color-bg-deep)',
-                      borderRadius: 6,
-                      border: '1px solid var(--color-border-subtle)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        color: 'var(--color-cyan)',
-                        marginBottom: '0.2rem',
-                      }}
-                    >
-                      {term}
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                      {desc}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="divider" style={{ margin: '4rem 0 3rem' }} />
-
-          {/* Planned 3D Simulations Section */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
-              <span className="badge badge--cyan">Phase 2 Architecture</span>
-              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Three.js + React Three Fiber
-              </span>
-            </div>
-            <h2 className="section-title">Upcoming 3D Interactive Experiments</h2>
-            <p className="section-subtitle">
-              The laboratory architecture is prepared for two dedicated 3D interactive simulations designed to demonstrate biological vision analogies and asynchronous stream physics.
-            </p>
-
-            <div className="grid-2" style={{ gap: '1.5rem' }}>
-              {/* Experiment 1 */}
+              {/* Quick Switch Callout to Simulation 2 */}
               <div
                 className="card"
                 style={{
@@ -482,99 +414,229 @@ export default function LaboratoryPage() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '1rem',
+                  background: 'rgba(6, 182, 212, 0.04)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                      <span className="badge badge--cyan">EXPERIMENT 2 READY</span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        Slide 10 Space-Time Manifold & AER Data Lab
+                      </span>
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#fff', fontWeight: 700 }}>
+                      Inspect the Continuous 3D Space-Time Manifold (x, y, t)
+                    </h3>
+                    <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)', maxWidth: '70ch' }}>
+                      Switch to Simulation 2 to see the rotating target unroll into a continuous 3D space-time double helix (Slide 10),
+                      inspect individual microsecond AER packets, and export genuine research CSV &amp; JSON event datasets.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActiveTab('3d-sim2')
+                      window.scrollTo({ top: 380, behavior: 'smooth' })
+                    }}
+                    className="btn btn-primary"
                     style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 10,
-                      background: 'var(--color-cyan-glow)',
-                      border: '1px solid var(--color-border)',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--color-cyan)',
+                      gap: '0.5rem',
+                      padding: '0.65rem 1.25rem',
+                      fontSize: '0.88rem',
                       fontWeight: 700,
-                      fontFamily: 'var(--font-mono)',
                     }}
                   >
-                    01
-                  </div>
-                  <span className="badge" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--color-cyan)', border: '1px solid rgba(6, 182, 212, 0.25)', fontSize: '0.7rem' }}>
-                    Dual-Viewport 3D
-                  </span>
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.15rem', marginBottom: '0.4rem' }}>
-                    Frame Shutter Smear vs. Continuous Event Tracking (Slides 4 & 17)
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', lineHeight: 1.6, maxWidth: 'none' }}>
-                    A split-viewport 3D scene comparing how a 60 fps CMOS camera (limited by a 30 Hz Nyquist cutoff and exposure shutter blur) and a neuromorphic DVS sensor perceive high-speed motion (sharp spatial edges at velocities &gt;1000°/s) in real time.
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    <strong style={{ color: 'var(--color-text-secondary)' }}>Planned Controls:</strong> Shutter speed (16.7 ms vs. 0.1 ms), target angular velocity (&gt;1000°/s), and ambient lux.
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    <strong style={{ color: 'var(--color-text-secondary)' }}>Key Demonstration:</strong> Exposure motion blur vs. continuous microsecond temporal tracking.
-                  </div>
-                </div>
-              </div>
-
-              {/* Experiment 2 */}
-              <div
-                className="card"
-                style={{
-                  borderTop: '3px solid var(--color-teal)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 10,
-                      background: 'rgba(20, 184, 166, 0.12)',
-                      border: '1px solid rgba(20, 184, 166, 0.3)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--color-teal)',
-                      fontWeight: 700,
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    02
-                  </div>
-                  <span className="badge" style={{ background: 'rgba(20, 184, 166, 0.1)', color: 'var(--color-teal)', border: '1px solid rgba(20, 184, 166, 0.25)', fontSize: '0.7rem' }}>
-                    Space-Time Manifold 3D
-                  </span>
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.15rem', marginBottom: '0.4rem' }}>
-                    Space-Time Manifold: Rotating Dot Stimulus (Slide 10)
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', lineHeight: 1.6, maxWidth: 'none' }}>
-                    A 3D space-time coordinate volume (x, y, t) showing a rotating dot on a disc (200 rev/sec over 5 ms) forming a continuous space-time helix, color-coded by polarity (+1 ON cyan / -1 OFF red) with timing precision equivalent to &gt;10,000 fps.
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    <strong style={{ color: 'var(--color-text-secondary)' }}>Planned Controls:</strong> Time slice window Δt, disc rotational speed (rev/sec), and 3D orbit camera.
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    <strong style={{ color: 'var(--color-text-secondary)' }}>Key Demonstration:</strong> Discrete asynchronous event packets forming continuous spatiotemporal scene dynamics.
-                  </div>
+                    <span>Launch Simulation 2</span>
+                    <ArrowRight size={16} />
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {activeTab === '3d-sim2' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3.5rem' }}>
+              <EventStreamLab />
+            </div>
+          )}
+
+          {activeTab === '2d-stream' && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 320px',
+                gap: '2rem',
+                alignItems: 'start',
+              }}
+            >
+              {/* Left: canvas + stats */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        color: 'var(--color-text-muted)',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      Event Frame — {CANVAS_W}×{CANVAS_H} px
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-cyan)' }}>
+                        ■ ON events
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>
+                        ■ OFF events
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      className="btn btn--ghost"
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                      onClick={() => set('running', !params.running)}
+                    >
+                      {params.running ? <Pause size={14} /> : <Play size={14} />}
+                      {params.running ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      className="btn btn--ghost"
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                      onClick={reset}
+                    >
+                      <RefreshCw size={14} />
+                      Reset
+                    </button>
+                  </div>
+                </div>
+
+                <EventCanvas events={events} />
+                <StatsPanel events={events} />
+
+                {/* Legend & Presentation Reference */}
+                <p
+                  style={{
+                    fontSize: '0.78rem',
+                    color: 'var(--color-text-secondary)',
+                    fontFamily: 'var(--font-mono)',
+                    lineHeight: 1.6,
+                    padding: '0.75rem 1rem',
+                    background: 'var(--color-bg-deep)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <strong style={{ color: 'var(--color-cyan)' }}>Event Trigger Model (Slide 9):</strong> Each pixel fires an
+                  asynchronous event <code style={{ color: 'var(--color-cyan)' }}>e_k = (x_k, y_k, t_k, p_k)</code> whenever local logarithmic intensity changes
+                  satisfy <code style={{ color: 'var(--color-cyan)' }}>L(x, y, t_k) - L(x, y, t_last) = pC</code>.
+                  Cyan = positive polarity <code style={{ color: 'var(--color-cyan)' }}>p = +1 (ON / Brighter)</code>,
+                  Red = negative polarity <code style={{ color: '#ef4444' }}>p = -1 (OFF / Darker)</code>.
+                </p>
+              </div>
+
+              {/* Right: controls */}
+              <div
+                className="card"
+                style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Sliders size={16} color="var(--color-cyan)" />
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                    Simulation Controls
+                  </span>
+                </div>
+
+                <LabelledSlider
+                  label="Contrast Threshold (C)"
+                  min={0.05}
+                  max={0.8}
+                  step={0.01}
+                  value={params.threshold}
+                  unit=""
+                  onChange={v => set('threshold', v)}
+                />
+                <LabelledSlider
+                  label="Noise Level"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={params.noiseLevel}
+                  unit=""
+                  onChange={v => set('noiseLevel', v)}
+                />
+                <LabelledSlider
+                  label="Motion Speed"
+                  min={0.2}
+                  max={3}
+                  step={0.1}
+                  value={params.speed}
+                  unit="×"
+                  onChange={v => set('speed', v)}
+                />
+
+                <div className="divider" />
+
+                {/* Parameter info */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {[
+                    {
+                      term: 'Low threshold',
+                      desc: 'More events, higher bandwidth, more noise sensitivity',
+                    },
+                    {
+                      term: 'High threshold',
+                      desc: 'Fewer events, only strong edges and fast motion',
+                    },
+                    {
+                      term: 'High speed',
+                      desc: 'Denser event bursts along edges of moving objects',
+                    },
+                  ].map(({ term, desc }) => (
+                    <div
+                      key={term}
+                      style={{
+                        padding: '0.6rem 0.75rem',
+                        background: 'var(--color-bg-deep)',
+                        borderRadius: 6,
+                        border: '1px solid var(--color-border-subtle)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          color: 'var(--color-cyan)',
+                          marginBottom: '0.2rem',
+                        }}
+                      >
+                        {term}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                        {desc}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </>

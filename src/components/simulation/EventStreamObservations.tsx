@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Zap,
   Activity,
@@ -302,146 +303,349 @@ export default function EventStreamObservations({
       )}
 
       {/* ── Guided Experiment Presets ────────────────────────────────────────── */}
+      {(() => {
+        const isExp1Active =
+          dotDiameterPx === 7 &&
+          Math.abs(orbitalRadiusPx - 20) < 0.6 &&
+          speedDegPerSec === 360 &&
+          Math.abs(thresholdC - 0.20) < 0.02 &&
+          windowMs === 1000
+
+        const isExp2Active =
+          dotDiameterPx === 5 &&
+          Math.abs(orbitalRadiusPx - 20) < 0.6 &&
+          speedDegPerSec === 720 &&
+          Math.abs(thresholdC - 0.22) < 0.02 &&
+          windowMs === 1000
+
+        const isExp3Active =
+          speedDegPerSec === 0 &&
+          windowMs === 1000
+
+        const isExp4Active =
+          dotDiameterPx === 10 &&
+          Math.abs(orbitalRadiusPx - 18) < 0.6 &&
+          speedDegPerSec === 360 &&
+          Math.abs(thresholdC - 0.12) < 0.02 &&
+          windowMs === 1000
+
+        return (
+          <div
+            style={{
+              background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.85) 0%, rgba(10, 15, 30, 0.95) 100%)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              borderRadius: 10,
+              padding: '0.9rem 1rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+              boxShadow: '0 4px 20px -2px rgba(0, 0, 0, 0.4)',
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '0.4rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                <Sparkles size={16} style={{ color: '#fbbf24' }} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '0.01em' }}>
+                  Guided Presentation Experiments
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: '0.66rem',
+                  color: '#94a3b8',
+                  fontFamily: 'var(--font-mono)',
+                  background: 'rgba(148, 163, 184, 0.1)',
+                  padding: '0.15rem 0.45rem',
+                  borderRadius: 4,
+                  border: '1px solid rgba(148, 163, 184, 0.15)',
+                }}
+              >
+                Click to auto-load benchmark
+              </span>
+            </div>
+
+            {/* Responsive Experiments Grid */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                gap: '0.65rem',
+              }}
+            >
+              {/* Preset 1: Slide 10 Helix */}
+              <ExperimentCard
+                expNum={1}
+                badgeColor="56, 189, 248"
+                slideRef="Slide 10 Benchmark"
+                title="1. Canonical Double Helix"
+                paramSummary="ω = 360°/s (1 rev/s) • r = 20 px • C = 0.20"
+                description="Standard 1.00 rev/s orbit unrolling into 1 complete 360° space-time double helix over 1000 ms."
+                isActive={isExp1Active}
+                onClick={() =>
+                  onApplyPreset({
+                    dotDiameter: 7,
+                    orbitalRadius: 20,
+                    speed: 360,
+                    window: 1000,
+                    threshold: 0.20,
+                  })
+                }
+              />
+
+              {/* Preset 2: Fast Double Coil */}
+              <ExperimentCard
+                expNum={2}
+                badgeColor="192, 132, 252"
+                slideRef="High Velocity"
+                title="2. High-Speed Double Coil"
+                paramSummary="ω = 720°/s (2 rev/s) • r = 20 px • C = 0.22"
+                description="2.00 rev/s orbit producing 2 tight space-time helical coils along time (Δt = 1000 ms)."
+                isActive={isExp2Active}
+                onClick={() =>
+                  onApplyPreset({
+                    dotDiameter: 5,
+                    orbitalRadius: 20,
+                    speed: 720,
+                    window: 1000,
+                    threshold: 0.22,
+                  })
+                }
+              />
+
+              {/* Preset 3: Temporal Sparsity */}
+              <ExperimentCard
+                expNum={3}
+                badgeColor="251, 191, 36"
+                slideRef="Slide 9 & 22 Sparsity"
+                title="3. Temporal Sparsity Benchmark"
+                paramSummary="ω = 0°/s (Static) • r = 20 px • C = 0.20"
+                description="Stationary scene demonstrating zero event generation (0 ev/s) and near-zero bus power."
+                isActive={isExp3Active}
+                onClick={() =>
+                  onApplyPreset({
+                    dotDiameter: 7,
+                    orbitalRadius: 20,
+                    speed: 0,
+                    window: 1000,
+                    threshold: 0.20,
+                  })
+                }
+              />
+
+              {/* Preset 4: Wide Footprint & Sensitivity */}
+              <ExperimentCard
+                expNum={4}
+                badgeColor="52, 211, 153"
+                slideRef="Max Footprint"
+                title="4. Wide Footprint & Sensitivity"
+                paramSummary="dia = 10 px • r = 18 px • C = 0.12"
+                description="10 px diameter dot (maximum supported footprint) with sensitive C = 0.12 forming a dense ribbon."
+                isActive={isExp4Active}
+                onClick={() =>
+                  onApplyPreset({
+                    dotDiameter: 10,
+                    orbitalRadius: 18,
+                    speed: 360,
+                    window: 1000,
+                    threshold: 0.12,
+                  })
+                }
+              />
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
+interface ExperimentCardProps {
+  expNum: number
+  badgeColor: string
+  slideRef: string
+  title: string
+  paramSummary: string
+  description: string
+  isActive: boolean
+  onClick: () => void
+}
+
+function ExperimentCard({
+  expNum,
+  badgeColor,
+  slideRef,
+  title,
+  paramSummary,
+  description,
+  isActive,
+  onClick,
+}: ExperimentCardProps) {
+  const [isHovered, setIsHovered] = useState(false)
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        textAlign: 'left',
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '0.75rem 0.85rem',
+        borderRadius: 8,
+        cursor: 'pointer',
+        transition: 'all 0.18s ease-in-out',
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word',
+        border: isActive
+          ? '1.5px solid #06b6d4'
+          : isHovered
+            ? '1.5px solid rgba(56, 189, 248, 0.55)'
+            : '1px solid rgba(148, 163, 184, 0.22)',
+        background: isActive
+          ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%)'
+          : isHovered
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)'
+            : 'linear-gradient(135deg, rgba(30, 41, 59, 0.55) 0%, rgba(15, 23, 42, 0.85) 100%)',
+        boxShadow: isActive
+          ? '0 0 14px rgba(6, 182, 212, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+          : isHovered
+            ? '0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
+            : '0 2px 4px rgba(0, 0, 0, 0.2)',
+        transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
+      }}
+    >
+      {/* Top Header: Badge, Slide Ref, Active Indicator */}
       <div
         style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 8,
-          padding: '0.75rem 0.85rem',
           display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          gap: '0.4rem',
+          marginBottom: '0.35rem',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <Sparkles size={14} style={{ color: 'var(--color-accent-amber)' }} />
-          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f3f4f6' }}>
-            Guided Presentation Experiments
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              fontSize: '0.65rem',
+              fontWeight: 800,
+              fontFamily: 'var(--font-mono)',
+              padding: '0.12rem 0.35rem',
+              borderRadius: 4,
+              background: `rgba(${badgeColor}, 0.15)`,
+              color: `rgb(${badgeColor})`,
+              border: `1px solid rgba(${badgeColor}, 0.35)`,
+            }}
+          >
+            EXP {expNum}
+          </span>
+          <span
+            style={{
+              fontSize: '0.64rem',
+              color: '#94a3b8',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            {slideRef}
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.45rem' }}>
-          {/* Preset 1: Slide 10 Helix */}
-          <button
-            onClick={() =>
-              onApplyPreset({
-                dotDiameter: 7,
-                orbitalRadius: 20,
-                speed: 360,
-                window: 1000,
-                threshold: 0.20,
-              })
-            }
-            className="btn btn-secondary"
+        {isActive ? (
+          <span
             style={{
-              padding: '0.45rem 0.6rem',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'left',
-              gap: '0.15rem',
-              border: '1px solid var(--color-border)',
+              fontSize: '0.6rem',
+              fontWeight: 800,
+              fontFamily: 'var(--font-mono)',
+              padding: '0.1rem 0.4rem',
+              borderRadius: 4,
+              background: 'rgba(16, 185, 129, 0.2)',
+              color: '#34d399',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem',
             }}
           >
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#fff' }}>
-              1. Slide 10 Canonical Double Helix
-            </span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-              1.00 rev/s orbit unrolling into 1 complete 360° space-time double helix (Δt = 1000 ms)
-            </span>
-          </button>
-
-          {/* Preset 2: Fast Double Coil */}
-          <button
-            onClick={() =>
-              onApplyPreset({
-                dotDiameter: 5,
-                orbitalRadius: 20,
-                speed: 720,
-                window: 1000,
-                threshold: 0.22,
-              })
-            }
-            className="btn btn-secondary"
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34d399' }} />
+            ACTIVE
+          </span>
+        ) : (
+          <span
             style={{
-              padding: '0.45rem 0.6rem',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'left',
-              gap: '0.15rem',
-              border: '1px solid var(--color-border)',
+              fontSize: '0.64rem',
+              color: isHovered ? '#38bdf8' : '#64748b',
+              fontFamily: 'var(--font-mono)',
+              transition: 'color 0.15s ease',
             }}
           >
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#fff' }}>
-              2. High-Speed Double Coil
-            </span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-              2.00 rev/s orbit unrolling into 2 tight helical coils along time (Δt = 1000 ms)
-            </span>
-          </button>
-
-          {/* Preset 3: Temporal Sparsity */}
-          <button
-            onClick={() =>
-              onApplyPreset({
-                dotDiameter: 7,
-                orbitalRadius: 20,
-                speed: 0,
-                window: 1000,
-                threshold: 0.20,
-              })
-            }
-            className="btn btn-secondary"
-            style={{
-              padding: '0.45rem 0.6rem',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'left',
-              gap: '0.15rem',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#fff' }}>
-              3. Temporal Sparsity (Slide 9 & 22)
-            </span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-              Stationary dot verifying exactly 0 events and zero bus power
-            </span>
-          </button>
-
-          {/* Preset 4: Wide Footprint & High Sensitivity */}
-          <button
-            onClick={() =>
-              onApplyPreset({
-                dotDiameter: 10,
-                orbitalRadius: 18,
-                speed: 360,
-                window: 1000,
-                threshold: 0.12,
-              })
-            }
-            className="btn btn-secondary"
-            style={{
-              padding: '0.45rem 0.6rem',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'left',
-              gap: '0.15rem',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#fff' }}>
-              4. Wide Footprint & Sensitivity
-            </span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-              10 px diameter dot (maximum supported footprint) with sensitive C = 0.12 forming a dense ribbon
-            </span>
-          </button>
-        </div>
+            Load ↵
+          </span>
+        )}
       </div>
-    </div>
+
+      {/* Title */}
+      <div
+        style={{
+          fontSize: '0.82rem',
+          fontWeight: 700,
+          color: isActive ? '#38bdf8' : '#f8fafc',
+          lineHeight: 1.35,
+          marginBottom: '0.3rem',
+          whiteSpace: 'normal',
+          wordBreak: 'break-word',
+        }}
+      >
+        {title}
+      </div>
+
+      {/* Parameter Summary Chip */}
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          fontSize: '0.67rem',
+          fontFamily: 'var(--font-mono)',
+          color: '#7dd3fc',
+          background: 'rgba(56, 189, 248, 0.08)',
+          border: '1px solid rgba(56, 189, 248, 0.18)',
+          padding: '0.15rem 0.45rem',
+          borderRadius: 4,
+          marginBottom: '0.4rem',
+          whiteSpace: 'normal',
+          wordBreak: 'break-word',
+        }}
+      >
+        {paramSummary}
+      </div>
+
+      {/* Description Body */}
+      <div
+        style={{
+          fontSize: '0.72rem',
+          color: '#cbd5e1',
+          lineHeight: 1.45,
+          whiteSpace: 'normal',
+          wordBreak: 'break-word',
+        }}
+      >
+        {description}
+      </div>
+    </button>
   )
 }
